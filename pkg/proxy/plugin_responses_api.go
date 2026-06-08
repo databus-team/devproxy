@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/elazarl/goproxy"
@@ -661,15 +662,30 @@ func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool) error
 		Output:    make([]Item, 0, len(chatResp.Choices)),
 	}
 
-	for i, choice := range chatResp.Choices {
-		item := Item{
-			ID:     fmt.Sprintf("msg_%s_%d", resResp.ID, i),
-			Type:   "message",
-			Status: "completed",
-			Role:   choice.Message.Role,
-			Content: p.parseContent(choice.Message.Content),
+	for _, choice := range chatResp.Choices {
+		tcInfos, cleanedContent := parseXMLToolCalls(choice.Message.Content)
+
+		msgItem := Item{
+			ID:      fmt.Sprintf("msg_%s_%d", resResp.ID, len(resResp.Output)),
+			Type:    "message",
+			Status:  "completed",
+			Role:    choice.Message.Role,
+			Content: p.parseContent(cleanedContent),
 		}
-		resResp.Output = append(resResp.Output, item)
+		resResp.Output = append(resResp.Output, msgItem)
+
+		for _, tc := range tcInfos {
+			toolIdx := len(resResp.Output)
+			toolItem := Item{
+				ID:        fmt.Sprintf("msg_%s_%d", resResp.ID, toolIdx),
+				Type:      "function_call",
+				Status:    "completed",
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
+				CallID:    fmt.Sprintf("call_%s_%d", resResp.ID, toolIdx),
+			}
+			resResp.Output = append(resResp.Output, toolItem)
+		}
 	}
 
 	newBodyBytes, err := json.Marshal(resResp)
@@ -718,6 +734,8 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 
 		var pendingText string
 		var inThinkBlock bool
+		var inXMLToolBlock bool
+		var xmlBuffer strings.Builder
 
 		var reasoningContent strings.Builder
 		var outputTextContent strings.Builder
@@ -895,9 +913,35 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 			return true
 		}
 
+		specialPrefixes := []string{"<think>", "<invoke", "<minimax:tool_call>", "</minimax:tool_call>"}
+
+		getMaxKeepLen := func(s string) int {
+			maxLen := 0
+			for _, prefix := range specialPrefixes {
+				for i := 1; i < len(prefix); i++ {
+					if len(s) >= i {
+						suffix := s[len(s)-i:]
+						prefPart := prefix[:i]
+						if suffix == prefPart {
+							if i > maxLen {
+								maxLen = i
+							}
+						}
+					}
+				}
+			}
+			return maxLen
+		}
+
 		// Helper to close the message item
 		finishMessage := func() {
 			if messageAdded && !messageDone && !hasError {
+				if inXMLToolBlock && xmlBuffer.Len() > 0 {
+					emitOutput(xmlBuffer.String())
+					xmlBuffer.Reset()
+					inXMLToolBlock = false
+				}
+
 				if len(pendingText) > 0 {
 					if inThinkBlock {
 						emitThink(pendingText)
@@ -1064,7 +1108,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 									pendingText += delta.Content
 
 									for {
-										if !inThinkBlock {
+										if !inThinkBlock && !inXMLToolBlock {
 											idx := strings.Index(pendingText, "<think>")
 											if idx != -1 {
 												before := pendingText[:idx]
@@ -1080,17 +1124,30 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 												continue
 											}
 
-											keepLen := 0
-											for i := 1; i <= 6; i++ {
-												if len(pendingText) >= i {
-													suffix := pendingText[len(pendingText)-i:]
-													prefix := "<think>"[:i]
-													if suffix == prefix {
-														keepLen = i
-														break
+											invokeIdx := strings.Index(pendingText, "<invoke")
+											minimaxIdx := strings.Index(pendingText, "<minimax:tool_call")
+
+											targetIdx := -1
+											if invokeIdx != -1 && (minimaxIdx == -1 || invokeIdx < minimaxIdx) {
+												targetIdx = invokeIdx
+											} else if minimaxIdx != -1 {
+												targetIdx = minimaxIdx
+											}
+
+											if targetIdx != -1 {
+												before := pendingText[:targetIdx]
+												if len(before) > 0 {
+													if !emitOutput(before) {
+														return
 													}
 												}
+												inXMLToolBlock = true
+												xmlBuffer.WriteString(pendingText[targetIdx:])
+												pendingText = ""
+												break
 											}
+
+											keepLen := getMaxKeepLen(pendingText)
 
 											if len(pendingText) > keepLen {
 												toEmit := pendingText[:len(pendingText)-keepLen]
@@ -1098,6 +1155,55 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 													return
 												}
 												pendingText = pendingText[len(pendingText)-keepLen:]
+											}
+											break
+										} else if inXMLToolBlock {
+											xmlBuffer.WriteString(pendingText)
+											pendingText = ""
+
+											xmlStr := xmlBuffer.String()
+											if strings.Contains(xmlStr, "</invoke>") {
+												tcInfos, cleaned := parseXMLToolCalls(xmlStr)
+												if len(tcInfos) > 0 {
+													for _, tc := range tcInfos {
+														idx := len(toolCalls)
+														callID := fmt.Sprintf("call_%s_%d", responseID, idx)
+														tItemID := fmt.Sprintf("msg_%s_%d", responseID, idx+1)
+
+														finishMessage()
+														if hasError {
+															return
+														}
+
+														if !writeEventWrapper("response.output_item.added", ResponsesAPIEvent{
+															Type: "response.output_item.added", ResponseID: responseID, OutputIndex: idx+1,
+															Item: &Item{ID: tItemID, Type: "function_call", Status: "in_progress", Name: tc.Name, CallID: callID},
+														}) {
+															return
+														}
+
+														if !writeEventWrapper("response.output_item.done", ResponsesAPIEvent{
+															Type: "response.output_item.done", ResponseID: responseID, OutputIndex: idx+1,
+															Item: &Item{ID: tItemID, Type: "function_call", Status: "completed", Name: tc.Name, Arguments: tc.Arguments, CallID: callID},
+														}) {
+															return
+														}
+
+														tcState := &toolCallState{
+															ID:    callID,
+															Name:  tc.Name,
+															Added: true,
+															Done:  true,
+														}
+														tcState.Arguments.WriteString(tc.Arguments)
+														toolCalls[idx] = tcState
+													}
+												}
+
+												pendingText = cleaned
+												xmlBuffer.Reset()
+												inXMLToolBlock = false
+												continue
 											}
 											break
 										} else {
@@ -1244,4 +1350,58 @@ func (p *ResponsesAPIPlugin) writeEvent(w io.Writer, eventType string, data inte
 		return fmt.Errorf("writeEvent: failed to write: %w", err)
 	}
 	return nil
+}
+
+var invokeRegex = regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)">([\s\S]*?)</invoke>`)
+var paramRegex = regexp.MustCompile(`<parameter\s+name="([^"]+)">([^<]*)</parameter>`)
+var minimaxCallRegex = regexp.MustCompile(`(?s)</?minimax:tool_call\s*>`)
+
+// XMLToolCallInfo 保存解析出的工具调用
+type XMLToolCallInfo struct {
+	Name      string
+	Arguments string // JSON string
+	RawText   string // 被替换的原始 XML 文本
+}
+
+func parseXMLToolCalls(s string) ([]XMLToolCallInfo, string) {
+	var toolCalls []XMLToolCallInfo
+	
+	// 首先找到所有的 invoke 块
+	matches := invokeRegex.FindAllStringSubmatchIndex(s, -1)
+	if len(matches) == 0 {
+		return nil, s
+	}
+
+	for _, match := range matches {
+		rawText := s[match[0]:match[1]]
+		name := s[match[2]:match[3]]
+		innerParams := s[match[4]:match[5]]
+		
+		// 解析参数
+		params := make(map[string]string)
+		paramMatches := paramRegex.FindAllStringSubmatch(innerParams, -1)
+		for _, pm := range paramMatches {
+			pName := pm[1]
+			pValue := pm[2]
+			params[pName] = pValue
+		}
+		
+		argBytes, _ := json.Marshal(params)
+		
+		toolCalls = append(toolCalls, XMLToolCallInfo{
+			Name:      name,
+			Arguments: string(argBytes),
+			RawText:   rawText,
+		})
+	}
+	
+	// 从正文中删除这些 XML，并清理 minimax:tool_call 标签
+	cleaned := s
+	for _, tc := range toolCalls {
+		cleaned = strings.ReplaceAll(cleaned, tc.RawText, "")
+	}
+	cleaned = minimaxCallRegex.ReplaceAllString(cleaned, "")
+	cleaned = strings.TrimSpace(cleaned)
+	
+	return toolCalls, cleaned
 }

@@ -485,4 +485,137 @@ func TestResponsesAPIPlugin_ProcessResponse_Stream_StripThink(t *testing.T) {
 	}
 }
 
+func TestResponsesAPIPlugin_ProcessResponse_JSON_XMLToolCall(t *testing.T) {
+	plugin := &ResponsesAPIPlugin{KeepReasoning: false}
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	req.Header.Set("X-DevProxy-Responses-API", "true")
+
+	contentWithTool := "• 最后验证没有残留引用：\n" +
+		"<invoke name=\"rg\">\n" +
+		"  <parameter name=\"args\">decision_tracker|DECISION_LOG_KEY</parameter>\n" +
+		"  <parameter name=\"workdir\">/Users/chentt/Projects/databus-pilot-aegra</parameter>\n" +
+		"</invoke>\n" +
+		"</minimax:tool_call>\n"
+
+	chatRespMap := map[string]interface{}{
+		"id":      "chatcmpl-123",
+		"object":  "chat.completion",
+		"created": 1234567890,
+		"model":   "deepseek-r1",
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": contentWithTool,
+				},
+				"finish_reason": "stop",
+			},
+		},
+	}
+	respBody, _ := json.Marshal(chatRespMap)
+
+	resp := &http.Response{
+		StatusCode: 200,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Request:    req,
+	}
+	resp.Header.Set("Content-Type", "application/json")
+
+	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+		t.Fatalf("ProcessResponse failed: %v", err)
+	}
+
+	newBytes, _ := io.ReadAll(resp.Body)
+	var resResp ResponsesAPIResponse
+	if err := json.Unmarshal(newBytes, &resResp); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// 最终的 Output 应该有 2 项：1 个 message, 1 个 function_call
+	if len(resResp.Output) != 2 {
+		t.Fatalf("Expected 2 outputs, got %d", len(resResp.Output))
+	}
+
+	// 验证 message item 只有洗干净后的正文
+	msgItem := resResp.Output[0]
+	if msgItem.Type != "message" {
+		t.Errorf("First output type mismatch: %s", msgItem.Type)
+	}
+	if len(msgItem.Content) != 1 || msgItem.Content[0].Text != "• 最后验证没有残留引用：" {
+		t.Errorf("First output content mismatch: %+v", msgItem.Content)
+	}
+
+	// 验证 function_call item
+	toolItem := resResp.Output[1]
+	if toolItem.Type != "function_call" {
+		t.Errorf("Second output type mismatch: %s", toolItem.Type)
+	}
+	if toolItem.Name != "rg" {
+		t.Errorf("Tool name mismatch: %s", toolItem.Name)
+	}
+	
+	var args map[string]string
+	if err := json.Unmarshal([]byte(toolItem.Arguments), &args); err != nil {
+		t.Fatalf("Failed to parse tool arguments: %v", err)
+	}
+	if args["args"] != "decision_tracker|DECISION_LOG_KEY" || args["workdir"] != "/Users/chentt/Projects/databus-pilot-aegra" {
+		t.Errorf("Tool arguments mismatch: %+v", args)
+	}
+}
+
+func TestResponsesAPIPlugin_ProcessResponse_Stream_XMLToolCall(t *testing.T) {
+	plugin := &ResponsesAPIPlugin{KeepReasoning: false}
+
+	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	req.Header.Set("X-DevProxy-Responses-API", "true")
+
+	// 模拟流式吐出包含 XML 工具调用的 delta
+	chunks := []string{
+		`data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677649420,"model":"deepseek-r1","choices":[{"index":0,"delta":{"content":"验证：\n<inv"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677649420,"model":"deepseek-r1","choices":[{"index":0,"delta":{"content":"oke name=\"rg\">\n  <parameter name=\"args\">de"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677649420,"model":"deepseek-r1","choices":[{"index":0,"delta":{"content":"cision_tracker|DECISION_LOG_KEY</parameter>\n"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1677649420,"model":"deepseek-r1","choices":[{"index":0,"delta":{"content":"  <parameter name=\"workdir\">/Users/chentt</parameter>\n</invoke>\n</minimax:tool_call>\n结束"},"finish_reason":null}]}`,
+		`data: [DONE]`,
+	}
+	bodyStr := strings.Join(chunks, "\n\n") + "\n\n"
+
+	resp := &http.Response{
+		StatusCode: 200,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(bodyStr)),
+		Request:    req,
+	}
+	resp.Header.Set("Content-Type", "text/event-stream")
+
+	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+		t.Fatalf("ProcessResponse failed: %v", err)
+	}
+
+	reader := io.Reader(resp.Body)
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(reader)
+	output := buf.String()
+
+	// 验证包含工具调用的 output_item.added 还有 output_item.done 事件
+	if !strings.Contains(output, "event: response.output_item.added") {
+		t.Errorf("Missing response.output_item.added event")
+	}
+	if !strings.Contains(output, `"type":"function_call"`) {
+		t.Errorf("Missing function_call event payload")
+	}
+	if !strings.Contains(output, `"name":"rg"`) {
+		t.Errorf("Missing tool name 'rg' in payload")
+	}
+	if !strings.Contains(output, `decision_tracker|DECISION_LOG_KEY`) {
+		t.Errorf("Missing tool arguments in payload")
+	}
+	if !strings.Contains(output, `结束`) {
+		// 验证工具结束后的后续正文能够正确吐出
+		t.Errorf("Missing trailing text delta")
+	}
+}
+
 
