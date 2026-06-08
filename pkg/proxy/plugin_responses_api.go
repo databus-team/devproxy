@@ -355,7 +355,7 @@ func (p *ResponsesAPIPlugin) stripThinkBlock(s string) string {
 			break
 		}
 	}
-	return s
+	return strings.TrimSpace(s)
 }
 
 func (p *ResponsesAPIPlugin) transformContent(content interface{}) interface{} {
@@ -729,6 +729,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 		var reasoningPartDone bool
 		var outputTextPartAdded bool
 		var outputTextPartDone bool
+		var outputTextStarted bool
 
 		// State for tool calls (Items 1, 2, ...)
 		type toolCallState struct {
@@ -853,6 +854,16 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 					return false
 				}
 			}
+
+			if !outputTextStarted {
+				trimmed := strings.TrimLeft(text, " \t\r\n")
+				if len(trimmed) == 0 {
+					return true
+				}
+				text = trimmed
+				outputTextStarted = true
+			}
+
 			outputTextContent.WriteString(text)
 			messageSeqNum++
 			if !writeEventWrapper("response.output_text.delta", ResponsesAPIEvent{
