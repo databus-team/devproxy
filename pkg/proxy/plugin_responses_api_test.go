@@ -492,9 +492,15 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_XMLToolCall(t *testing.T) {
 	req.Header.Set("X-DevProxy-Responses-API", "true")
 
 	contentWithTool := "• 最后验证没有残留引用：\n" +
-		"<invoke name=\"rg\">\n" +
-		"  <parameter name=\"args\">decision_tracker|DECISION_LOG_KEY</parameter>\n" +
-		"  <parameter name=\"workdir\">/Users/chentt/Projects/databus-pilot-aegra</parameter>\n" +
+		"<invoke name=\"apply_patch\">\n" +
+		"  <parameter name=\"command\">*** Begin Patch***\n" +
+		"  *** Update File: tests/test_frontmatter_simple.py\n" +
+		"  @@ -48,7 +48,7 @@ def test_parse_md_file():\n" +
+		"       assert metadata[\"name\"] == \"main\"\n" +
+		"  -    assert metadata[\"type\"] == \"main_agent\"\n" +
+		"  +    assert metadata[\"type\"] == \"coordinator\"\n" +
+		"       assert len(body) > 0\n" +
+		"    *** End Patch***</parameter>\n" +
 		"</invoke>\n" +
 		"</minimax:tool_call>\n"
 
@@ -553,7 +559,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_XMLToolCall(t *testing.T) {
 	if toolItem.Type != "function_call" {
 		t.Errorf("Second output type mismatch: %s", toolItem.Type)
 	}
-	if toolItem.Name != "rg" {
+	if toolItem.Name != "apply_patch" {
 		t.Errorf("Tool name mismatch: %s", toolItem.Name)
 	}
 	
@@ -561,7 +567,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_XMLToolCall(t *testing.T) {
 	if err := json.Unmarshal([]byte(toolItem.Arguments), &args); err != nil {
 		t.Fatalf("Failed to parse tool arguments: %v", err)
 	}
-	if args["args"] != "decision_tracker|DECISION_LOG_KEY" || args["workdir"] != "/Users/chentt/Projects/databus-pilot-aegra" {
+	if !strings.Contains(args["command"], "coordinator") {
 		t.Errorf("Tool arguments mismatch: %+v", args)
 	}
 }

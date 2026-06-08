@@ -1353,7 +1353,7 @@ func (p *ResponsesAPIPlugin) writeEvent(w io.Writer, eventType string, data inte
 }
 
 var invokeRegex = regexp.MustCompile(`(?s)<invoke\s+name="([^"]+)">([\s\S]*?)</invoke>`)
-var paramRegex = regexp.MustCompile(`<parameter\s+name="([^"]+)">([^<]*)</parameter>`)
+var paramRegex = regexp.MustCompile(`(?s)<parameter\s+name="([^"]+)">([\s\S]*?)</parameter>`)
 var minimaxCallRegex = regexp.MustCompile(`(?s)</?minimax:tool_call\s*>`)
 
 // XMLToolCallInfo 保存解析出的工具调用
