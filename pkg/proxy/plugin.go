@@ -71,6 +71,14 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 		return &CodexFixPlugin{TargetModel: param}, nil
 	}
 
+	if name == "responses-api" {
+		keepReasoning := false
+		if param == "keep-reasoning" {
+			keepReasoning = true
+		}
+		return &ResponsesAPIPlugin{KeepReasoning: keepReasoning}, nil
+	}
+
 	p, ok := RequestPluginRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("请求插件 %s 未找到", name)
@@ -81,7 +89,21 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 // GetResponsePlugin 根据名称获取响应插件实例
 func GetResponsePlugin(fullName string) (ResponsePlugin, error) {
 	name := fullName
-	// 目前不涉及参数化，后续如有需要可参照 GetPlugin
+	param := ""
+	if strings.Contains(fullName, ":") {
+		parts := strings.SplitN(fullName, ":", 2)
+		name = parts[0]
+		param = parts[1]
+	}
+
+	if name == "responses-api" {
+		keepReasoning := false
+		if param == "keep-reasoning" {
+			keepReasoning = true
+		}
+		return &ResponsesAPIPlugin{KeepReasoning: keepReasoning}, nil
+	}
+
 	p, ok := ResponsePluginRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("响应插件 %s 未找到", name)

@@ -23,7 +23,9 @@ func min(a, b int) int {
 }
 
 // ResponsesAPIPlugin adapts the OpenAI Responses API (/v1/responses) to the Chat Completions API (/v1/chat/completions).
-type ResponsesAPIPlugin struct{}
+type ResponsesAPIPlugin struct {
+	KeepReasoning bool
+}
 
 func (p *ResponsesAPIPlugin) Name() string {
 	return "responses-api"
@@ -338,16 +340,34 @@ func (p *ResponsesAPIPlugin) transformMessages(input []interface{}) []interface{
 	return output
 }
 
+func (p *ResponsesAPIPlugin) stripThinkBlock(s string) string {
+	for {
+		startIdx := strings.Index(s, "<think>")
+		if startIdx == -1 {
+			break
+		}
+		endIdx := strings.Index(s, "</think>")
+		if endIdx != -1 && endIdx > startIdx {
+			s = s[:startIdx] + s[endIdx+8:]
+		} else {
+			// If there is a <think> tag but no closing tag (truncated), strip from <think> to end
+			s = s[:startIdx]
+			break
+		}
+	}
+	return s
+}
+
 func (p *ResponsesAPIPlugin) transformContent(content interface{}) interface{} {
 	switch v := content.(type) {
 	case string:
-		return v
+		return p.stripThinkBlock(v)
 	case []interface{}:
 		newContent := make([]interface{}, len(v))
-		for i, p := range v {
-			part, ok := p.(map[string]interface{})
+		for i, pVal := range v {
+			part, ok := pVal.(map[string]interface{})
 			if !ok {
-				newContent[i] = p
+				newContent[i] = pVal
 				continue
 			}
 			newPart := make(map[string]interface{})
@@ -355,6 +375,12 @@ func (p *ResponsesAPIPlugin) transformContent(content interface{}) interface{} {
 				// Responses API uses input_text/output_text, Chat uses text
 				if pk == "type" && (pv == "input_text" || pv == "output_text") {
 					newPart[pk] = "text"
+				} else if pk == "text" {
+					if textStr, ok := pv.(string); ok {
+						newPart[pk] = p.stripThinkBlock(textStr)
+					} else {
+						newPart[pk] = pv
+					}
 				} else {
 					newPart[pk] = pv
 				}
@@ -551,6 +577,59 @@ func (p *ResponsesAPIPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.P
 	return nil
 }
 
+func (p *ResponsesAPIPlugin) parseContent(contentStr string) []Content {
+	if !p.KeepReasoning {
+		// 如果不需要保留 reasoning，则直接使用 stripThinkBlock 剥离思考块并过滤它，只把正文作为唯一的 output_text 传回
+		stripped := p.stripThinkBlock(contentStr)
+		if len(stripped) == 0 {
+			return []Content{}
+		}
+		return []Content{
+			{
+				Type: "output_text",
+				Text: stripped,
+			},
+		}
+	}
+
+	var parts []Content
+	s := contentStr
+
+	for {
+		startIdx := strings.Index(s, "<think>")
+		if startIdx == -1 {
+			if len(s) > 0 {
+				parts = append(parts, Content{Type: "output_text", Text: s})
+			}
+			break
+		}
+
+		if startIdx > 0 {
+			parts = append(parts, Content{Type: "output_text", Text: s[:startIdx]})
+		}
+
+		s = s[startIdx+7:]
+		endIdx := strings.Index(s, "</think>")
+		if endIdx != -1 {
+			reasoningText := s[:endIdx]
+			if len(reasoningText) > 0 {
+				parts = append(parts, Content{Type: "reasoning", Text: reasoningText})
+			}
+			s = s[endIdx+8:]
+		} else {
+			if len(s) > 0 {
+				parts = append(parts, Content{Type: "reasoning", Text: s})
+			}
+			break
+		}
+	}
+
+	if len(parts) == 0 {
+		return []Content{}
+	}
+	return parts
+}
+
 func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool) error {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -588,12 +667,7 @@ func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool) error
 			Type:   "message",
 			Status: "completed",
 			Role:   choice.Message.Role,
-			Content: []Content{
-				{
-					Type: "output_text",
-					Text: choice.Message.Content,
-				},
-			},
+			Content: p.parseContent(choice.Message.Content),
 		}
 		resResp.Output = append(resResp.Output, item)
 	}
@@ -638,12 +712,23 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 		}
 
 		// State for message (Item 0)
-		var fullContent strings.Builder
 		var messageItemID string
-		var messageSeqNum int
 		var messageAdded bool
-		var messagePartAdded bool
 		var messageDone bool
+
+		var pendingText string
+		var inThinkBlock bool
+
+		var reasoningContent strings.Builder
+		var outputTextContent strings.Builder
+		
+		var messageSeqNum int
+		
+		// To track which parts we've added
+		var reasoningPartAdded bool
+		var reasoningPartDone bool
+		var outputTextPartAdded bool
+		var outputTextPartDone bool
 
 		// State for tool calls (Items 1, 2, ...)
 		type toolCallState struct {
@@ -673,22 +758,163 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 			return true
 		}
 
+		getOutputTextIndex := func() int {
+			if p.KeepReasoning && reasoningPartAdded {
+				return 1
+			}
+			return 0
+		}
+
+		startThink := func() bool {
+			inThinkBlock = true
+			if !reasoningPartAdded {
+				if p.KeepReasoning {
+					if !writeEventWrapper("response.content_part.added", ResponsesAPIEvent{
+						Type: "response.content_part.added", ResponseID: responseID, ItemID: messageItemID,
+						ContentPart: &ContentPart{Type: "reasoning", Index: 0},
+					}) {
+						return false
+					}
+				}
+				reasoningPartAdded = true
+			}
+			return true
+		}
+
+		emitThink := func(text string) bool {
+			if !reasoningPartAdded {
+				if !startThink() {
+					return false
+				}
+			}
+			reasoningContent.WriteString(text)
+			if p.KeepReasoning {
+				messageSeqNum++
+				if !writeEventWrapper("response.reasoning.delta", ResponsesAPIEvent{
+					Type: "response.reasoning.delta", ResponseID: responseID, ItemID: messageItemID,
+					Delta: text, SequenceNumber: messageSeqNum,
+				}) {
+					return false
+				}
+			}
+			return true
+		}
+
+		endThink := func() bool {
+			inThinkBlock = false
+			if reasoningPartAdded && !reasoningPartDone {
+				if p.KeepReasoning {
+					if !writeEventWrapper("response.reasoning.done", ResponsesAPIEvent{
+						Type: "response.reasoning.done", ResponseID: responseID, ItemID: messageItemID,
+						ContentPartIndex: 0, ContentPart: &ContentPart{Type: "reasoning", Index: 0, Text: reasoningContent.String()},
+					}) {
+						return false
+					}
+					if !writeEventWrapper("response.content_part.done", ResponsesAPIEvent{
+						Type: "response.content_part.done", ResponseID: responseID, ItemID: messageItemID,
+						ContentPartIndex: 0, ContentPart: &ContentPart{Type: "reasoning", Index: 0, Text: reasoningContent.String()},
+					}) {
+						return false
+					}
+				}
+				reasoningPartDone = true
+			}
+			return true
+		}
+
+		startOutput := func() bool {
+			if inThinkBlock {
+				if !endThink() {
+					return false
+				}
+			}
+			if reasoningPartAdded && !reasoningPartDone {
+				if !endThink() {
+					return false
+				}
+			}
+
+			if !outputTextPartAdded {
+				idx := getOutputTextIndex()
+				if !writeEventWrapper("response.content_part.added", ResponsesAPIEvent{
+					Type: "response.content_part.added", ResponseID: responseID, ItemID: messageItemID,
+					ContentPart: &ContentPart{Type: "output_text", Index: idx},
+				}) {
+					return false
+				}
+				outputTextPartAdded = true
+			}
+			return true
+		}
+
+		emitOutput := func(text string) bool {
+			if !outputTextPartAdded {
+				if !startOutput() {
+					return false
+				}
+			}
+			outputTextContent.WriteString(text)
+			messageSeqNum++
+			if !writeEventWrapper("response.output_text.delta", ResponsesAPIEvent{
+				Type: "response.output_text.delta", ResponseID: responseID, ItemID: messageItemID,
+				Delta: text, SequenceNumber: messageSeqNum,
+			}) {
+				return false
+			}
+			return true
+		}
+
+		endOutput := func() bool {
+			if outputTextPartAdded && !outputTextPartDone {
+				idx := getOutputTextIndex()
+				if !writeEventWrapper("response.output_text.done", ResponsesAPIEvent{
+					Type: "response.output_text.done", ResponseID: responseID, ItemID: messageItemID,
+					ContentPartIndex: idx, ContentPart: &ContentPart{Type: "output_text", Index: idx, Text: outputTextContent.String()},
+				}) {
+					return false
+				}
+				if !writeEventWrapper("response.content_part.done", ResponsesAPIEvent{
+					Type: "response.content_part.done", ResponseID: responseID, ItemID: messageItemID,
+					ContentPartIndex: idx, ContentPart: &ContentPart{Type: "output_text", Index: idx, Text: outputTextContent.String()},
+				}) {
+					return false
+				}
+				outputTextPartDone = true
+			}
+			return true
+		}
+
 		// Helper to close the message item
 		finishMessage := func() {
 			if messageAdded && !messageDone && !hasError {
-				if writeEventWrapper("response.output_text.done", ResponsesAPIEvent{
-					Type: "response.output_text.done", ResponseID: responseID, ItemID: messageItemID,
-					ContentPartIndex: 0, ContentPart: &ContentPart{Type: "output_text", Index: 0, Text: fullContent.String()},
-				}) {
-					writeEventWrapper("response.content_part.done", ResponsesAPIEvent{
-						Type: "response.content_part.done", ResponseID: responseID, ItemID: messageItemID,
-						ContentPartIndex: 0, ContentPart: &ContentPart{Type: "output_text", Index: 0, Text: fullContent.String()},
-					})
-					writeEventWrapper("response.output_item.done", ResponsesAPIEvent{
-						Type: "response.output_item.done", ResponseID: responseID, OutputIndex: 0,
-						Item: &Item{ID: messageItemID, Type: "message", Status: "completed", Role: "assistant", Content: []Content{{Type: "output_text", Text: fullContent.String()}}},
-					})
+				if len(pendingText) > 0 {
+					if inThinkBlock {
+						emitThink(pendingText)
+					} else {
+						emitOutput(pendingText)
+					}
+					pendingText = ""
 				}
+
+				if inThinkBlock {
+					endThink()
+				}
+				if outputTextPartAdded && !outputTextPartDone {
+					endOutput()
+				}
+
+				var finalContents []Content
+				if p.KeepReasoning && reasoningPartAdded {
+					finalContents = append(finalContents, Content{Type: "reasoning", Text: reasoningContent.String()})
+				}
+				if outputTextPartAdded {
+					finalContents = append(finalContents, Content{Type: "output_text", Text: outputTextContent.String()})
+				}
+
+				writeEventWrapper("response.output_item.done", ResponsesAPIEvent{
+					Type: "response.output_item.done", ResponseID: responseID, OutputIndex: 0,
+					Item: &Item{ID: messageItemID, Type: "message", Status: "completed", Role: "assistant", Content: finalContents},
+				})
 				messageDone = true
 			}
 		}
@@ -722,9 +948,16 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 
 			finalItems := make([]Item, 0)
 			if messageAdded {
+				var finalContents []Content
+				if p.KeepReasoning && reasoningPartAdded {
+					finalContents = append(finalContents, Content{Type: "reasoning", Text: reasoningContent.String()})
+				}
+				if outputTextPartAdded {
+					finalContents = append(finalContents, Content{Type: "output_text", Text: outputTextContent.String()})
+				}
 				finalItems = append(finalItems, Item{
 					ID: messageItemID, Type: "message", Status: "completed", Role: "assistant",
-					Content: []Content{{Type: "output_text", Text: fullContent.String()}},
+					Content: finalContents,
 				})
 			}
 
@@ -816,22 +1049,83 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 										}
 										messageAdded = true
 									}
-									if !messagePartAdded {
-										if !writeEventWrapper("response.content_part.added", ResponsesAPIEvent{
-											Type: "response.content_part.added", ResponseID: responseID, ItemID: messageItemID,
-											ContentPart: &ContentPart{Type: "output_text", Index: 0},
-										}) {
-											return
+
+									pendingText += delta.Content
+
+									for {
+										if !inThinkBlock {
+											idx := strings.Index(pendingText, "<think>")
+											if idx != -1 {
+												before := pendingText[:idx]
+												if len(before) > 0 {
+													if !emitOutput(before) {
+														return
+													}
+												}
+												if !startThink() {
+													return
+												}
+												pendingText = pendingText[idx+7:]
+												continue
+											}
+
+											keepLen := 0
+											for i := 1; i <= 6; i++ {
+												if len(pendingText) >= i {
+													suffix := pendingText[len(pendingText)-i:]
+													prefix := "<think>"[:i]
+													if suffix == prefix {
+														keepLen = i
+														break
+													}
+												}
+											}
+
+											if len(pendingText) > keepLen {
+												toEmit := pendingText[:len(pendingText)-keepLen]
+												if !emitOutput(toEmit) {
+													return
+												}
+												pendingText = pendingText[len(pendingText)-keepLen:]
+											}
+											break
+										} else {
+											idx := strings.Index(pendingText, "</think>")
+											if idx != -1 {
+												before := pendingText[:idx]
+												if len(before) > 0 {
+													if !emitThink(before) {
+														return
+													}
+												}
+												if !endThink() {
+													return
+												}
+												pendingText = pendingText[idx+8:]
+												continue
+											}
+
+											keepLen := 0
+											for i := 1; i <= 7; i++ {
+												if len(pendingText) >= i {
+													suffix := pendingText[len(pendingText)-i:]
+													prefix := "</think>"[:i]
+													if suffix == prefix {
+														keepLen = i
+														break
+													}
+												}
+											}
+
+											if len(pendingText) > keepLen {
+												toEmit := pendingText[:len(pendingText)-keepLen]
+												if !emitThink(toEmit) {
+													return
+												}
+												pendingText = pendingText[len(pendingText)-keepLen:]
+											}
+											break
 										}
-										messagePartAdded = true
-									}
-									fullContent.WriteString(delta.Content)
-									messageSeqNum++
-									if !writeEventWrapper("response.output_text.delta", ResponsesAPIEvent{
-										Type: "response.output_text.delta", ResponseID: responseID, ItemID: messageItemID,
-										Delta: delta.Content, SequenceNumber: messageSeqNum,
-									}) {
-										return
 									}
 								}
 
