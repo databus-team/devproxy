@@ -57,11 +57,12 @@ func (p *AnthropicThinkingFixPlugin) ProcessResponse(resp *http.Response, ctx *g
 }
 
 type toolUseInfo struct {
-	id        string
-	name      string
-	origIndex int
-	currIndex int
-	count     int
+	id           string
+	name         string
+	origIndex    int
+	currIndex    int
+	count        int
+	bufferedJSON string
 }
 
 type thinkingFixState struct {
@@ -220,13 +221,20 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 		if deltaType == "input_json_delta" && state.activeTool != nil {
 			partialJSON, _ := delta["partial_json"].(string)
 
-			// 检查这是否是一个完整合法的 JSON 对象
+			// 检查在处理当前 partialJSON 之前，当前缓冲区中的内容是否已经构成了一个完整非空的 JSON 对象。
+			// 如果已经是完整的 JSON 对象，说明上一个工具调用的所有参数已经全部传输完毕。
 			var temp map[string]interface{}
-			isCompleteJSON := strings.HasPrefix(strings.TrimSpace(partialJSON), "{") && json.Unmarshal([]byte(partialJSON), &temp) == nil
+			trimmedBuf := strings.TrimSpace(state.activeTool.bufferedJSON)
+			isPrevCompleteJSON := len(trimmedBuf) > 0 &&
+				strings.HasPrefix(trimmedBuf, "{") &&
+				json.Unmarshal([]byte(trimmedBuf), &temp) == nil
+
+			// 检查新的 partial_json 是否以 "{" 开头，如果是，说明这是一个新的 JSON 对象的开始。
+			isNewStart := strings.HasPrefix(strings.TrimSpace(partialJSON), "{")
 
 			state.activeTool.count++
 
-			if state.activeTool.count > 1 && isCompleteJSON {
+			if isPrevCompleteJSON && isNewStart {
 				// 1. 发送 content_block_stop 结束上一个 currIndex
 				p.writeEvent(dst, "content_block_stop", map[string]interface{}{
 					"type":  "content_block_stop",
@@ -240,6 +248,7 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 
 				// 3. 更新 activeTool 状态
 				state.activeTool.currIndex = newIndex
+				state.activeTool.bufferedJSON = partialJSON
 
 				// 4. 发送新的 content_block_start
 				p.writeEvent(dst, "content_block_start", map[string]interface{}{
@@ -262,6 +271,9 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 				}
 				return
 			}
+
+			// 如果没有拆分，就把新的 partialJSON 追加到当前缓冲中
+			state.activeTool.bufferedJSON += partialJSON
 		}
 
 		if state.activeTool != nil && state.activeTool.currIndex != index {

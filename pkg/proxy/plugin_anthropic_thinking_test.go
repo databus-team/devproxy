@@ -516,6 +516,39 @@ func TestAnthropicThinkingFix_KeepAlive(t *testing.T) {
 	}
 }
 
+func TestAnthropicThinkingFix_NestedJSONNotTruncated(t *testing.T) {
+	stream := []string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"type":"message","role":"assistant","id":"msg_t","content":[]}}`,
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_abc","name":"Bash","input":{}}}`,
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\n  \"command\": \"run_cmd\",\n  \"options\": "}}`,
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\n}"}}`,
+		"event: content_block_stop",
+		`data: {"type":"content_block_stop","index":1}`,
+		"event: message_stop",
+		`data: {"type":"message_stop"}`,
+	}
+
+	events := runPlugin(t, stream)
+
+	var starts []map[string]interface{}
+	for _, ev := range events {
+		if ev["type"] == "content_block_start" {
+			starts = append(starts, ev)
+		}
+	}
+
+	// 嵌套 JSON 不应该被拆分为多个 tool call，因此 content_block_start 应该只有 1 个
+	if len(starts) != 1 {
+		t.Fatalf("对于含有嵌套空 JSON 的工具参数，不应该拆分工具调用，期望 starts 数量为 1，实际为 %d\n%s", len(starts), dumpEvents(events))
+	}
+}
+
 func dumpEvents(events []map[string]interface{}) string {
 	var b strings.Builder
 	for i, ev := range events {
@@ -528,3 +561,4 @@ func dumpEvents(events []map[string]interface{}) string {
 	}
 	return b.String()
 }
+
