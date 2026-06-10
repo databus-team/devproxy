@@ -1082,3 +1082,69 @@ func TestMessagesFix_KeepReasoning_ThinkTags(t *testing.T) {
 		t.Errorf("text 块(index=%.0f)应包含正文，实际: %q\n%s", textIdx, text, dumpEvents(events))
 	}
 }
+
+func TestMessagesFix_ProcessRequest_StripsThinking(t *testing.T) {
+	plugin := &AnthropicMessagesFixPlugin{}
+
+	reqJSON := `{
+		"model": "B2C-MiniMax-M2.5",
+		"messages": [
+			{"role": "user", "content": "hi"},
+			{
+				"role": "assistant",
+				"content": [
+					{"type": "thinking", "thinking": "The user wants me to read the README.md file from the current project directory.\n"},
+					{"type": "text", "text": "Ok, let me check."}
+				]
+			}
+		]
+	}`
+
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", strings.NewReader(reqJSON))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if err := plugin.ProcessRequest(req); err != nil {
+		t.Fatalf("ProcessRequest failed: %v", err)
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("Failed to read body: %v", err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		t.Fatalf("Failed to parse output JSON: %v", err)
+	}
+
+	messagesVal, ok := payload["messages"]
+	if !ok {
+		t.Fatalf("messages field missing in rewritten request")
+	}
+
+	messages, ok := messagesVal.([]interface{})
+	if !ok {
+		t.Fatalf("messages is not a slice")
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+
+	assistantMsg, ok := messages[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("assistant message is not a map")
+	}
+
+	content := assistantMsg["content"]
+	if s, ok := content.(string); ok {
+		if s != "Ok, let me check." {
+			t.Errorf("expected content to be 'Ok, let me check.', got '%s'", s)
+		}
+	} else {
+		t.Errorf("expected assistant content to be string, got %T: %v", content, content)
+	}
+}

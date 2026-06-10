@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,11 +53,120 @@ func (p *AnthropicMessagesFixPlugin) Name() string {
 // ---------- Request plugin ----------
 
 func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request) error {
-	if !strings.HasSuffix(req.URL.Path, "/v1/messages") {
+	isMessages := strings.HasSuffix(req.URL.Path, "/v1/messages")
+	isChatCompletions := strings.HasSuffix(req.URL.Path, "/v1/chat/completions")
+
+	if !isMessages && !isChatCompletions {
 		return nil
 	}
+
 	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("X-DevProxy-Messages-Fix", "true")
+
+	if req.Body == nil || req.Method != http.MethodPost {
+		return nil
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		return fmt.Errorf("anthropic-messages-fix: read request body failed: %w", err)
+	}
+	req.Body.Close()
+
+	if len(bodyBytes) == 0 {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return nil
+	}
+
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+	req.Body, _ = req.GetBody()
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return nil
+	}
+
+	messagesVal, ok := payload["messages"]
+	if !ok {
+		return nil
+	}
+
+	messages, ok := messagesVal.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	modified := false
+	for i, m := range messages {
+		msg, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		contentVal, ok := msg["content"]
+		if !ok || contentVal == nil {
+			continue
+		}
+
+		if contentArr, ok := contentVal.([]interface{}); ok {
+			var newContentArr []interface{}
+			hasThinking := false
+			for _, c := range contentArr {
+				part, ok := c.(map[string]interface{})
+				if !ok {
+					newContentArr = append(newContentArr, c)
+					continue
+				}
+				partType, _ := part["type"].(string)
+				if partType == "thinking" {
+					hasThinking = true
+					continue
+				}
+				newContentArr = append(newContentArr, c)
+			}
+
+			if hasThinking {
+				modified = true
+				if len(newContentArr) == 0 {
+					msg["content"] = ""
+				} else if len(newContentArr) == 1 {
+					singlePart, ok := newContentArr[0].(map[string]interface{})
+					if ok {
+						singleType, _ := singlePart["type"].(string)
+						singleText, _ := singlePart["text"].(string)
+						if singleType == "text" {
+							msg["content"] = singleText
+						} else {
+							msg["content"] = newContentArr
+						}
+					} else {
+						msg["content"] = newContentArr
+					}
+				} else {
+					msg["content"] = newContentArr
+				}
+				messages[i] = msg
+			}
+		}
+	}
+
+	if modified {
+		payload["messages"] = messages
+		newBodyBytes, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("anthropic-messages-fix: marshal request body failed: %w", err)
+		}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(newBodyBytes)), nil
+		}
+		req.Body, _ = req.GetBody()
+		req.ContentLength = int64(len(newBodyBytes))
+		req.Header.Set("Content-Length", fmt.Sprint(len(newBodyBytes)))
+		req.Header.Del("Transfer-Encoding")
+	}
+
 	return nil
 }
 
