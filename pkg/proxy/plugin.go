@@ -44,6 +44,10 @@ func init() {
 
 	forceStreamPlugin := &ForceStreamPlugin{}
 	RegisterPlugin(forceStreamPlugin)
+
+	messagesFixPlugin := &AnthropicMessagesFixPlugin{}
+	RegisterPlugin(messagesFixPlugin)
+	RegisterResponsePlugin(messagesFixPlugin)
 }
 
 // RegisterPlugin 注册一个请求插件
@@ -79,6 +83,14 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 		return &ResponsesAPIPlugin{KeepReasoning: keepReasoning}, nil
 	}
 
+	if name == "anthropic-messages-fix" {
+		keepReasoning := false
+		if param == "keep-reasoning" {
+			keepReasoning = true
+		}
+		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
+	}
+
 	p, ok := RequestPluginRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("请求插件 %s 未找到", name)
@@ -102,6 +114,14 @@ func GetResponsePlugin(fullName string) (ResponsePlugin, error) {
 			keepReasoning = true
 		}
 		return &ResponsesAPIPlugin{KeepReasoning: keepReasoning}, nil
+	}
+
+	if name == "anthropic-messages-fix" {
+		keepReasoning := false
+		if param == "keep-reasoning" {
+			keepReasoning = true
+		}
+		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
 	}
 
 	p, ok := ResponsePluginRegistry[name]
