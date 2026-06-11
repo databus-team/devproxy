@@ -13,7 +13,7 @@ func TestCodexFixPlugin(t *testing.T) {
 
 	t.Run("Ignore non-POST", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -22,7 +22,7 @@ func TestCodexFixPlugin(t *testing.T) {
 	t.Run("Ignore non-JSON", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", nil)
 		req.Header.Set("Content-Type", "text/plain")
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -44,7 +44,7 @@ func TestCodexFixPlugin(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -76,7 +76,7 @@ func TestCodexFixPlugin(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestCodexFixPlugin(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -120,7 +120,7 @@ func TestCodexFixPlugin(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		err := p.ProcessRequest(req)
+		err := p.ProcessRequest(req, true)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestCodexFixPlugin(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "http://example.com", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		err := plugin.ProcessRequest(req)
+		err := plugin.ProcessRequest(req, true)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}

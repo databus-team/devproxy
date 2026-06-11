@@ -8,29 +8,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/elazarl/goproxy"
 )
 
-// dumpReadCloser dumps all read data to a file for debugging
-type dumpReadCloser struct {
-	src  io.ReadCloser
-	dump io.Writer
-}
 
-func (d *dumpReadCloser) Read(p []byte) (int, error) {
-	n, err := d.src.Read(p)
-	if n > 0 {
-		d.dump.Write(p[:n])
-	}
-	return n, err
-}
-
-func (d *dumpReadCloser) Close() error {
-	return d.src.Close()
-}
 
 // AnthropicMessagesFixPlugin 修复上游 /v1/messages 端点返回的流式事件中的问题：
 //
@@ -52,7 +35,7 @@ func (p *AnthropicMessagesFixPlugin) Name() string {
 
 // ---------- Request plugin ----------
 
-func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request) error {
+func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 	isMessages := strings.HasSuffix(req.URL.Path, "/v1/messages")
 	isChatCompletions := strings.HasSuffix(req.URL.Path, "/v1/chat/completions")
 
@@ -172,7 +155,7 @@ func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request) error {
 
 // ---------- Response plugin ----------
 
-func (p *AnthropicMessagesFixPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool) error {
+func (p *AnthropicMessagesFixPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool, vverbose bool) error {
 	if resp.Request == nil {
 		return nil
 	}
@@ -203,7 +186,7 @@ func (p *AnthropicMessagesFixPlugin) ProcessResponse(resp *http.Response, ctx *g
 	resp.Header.Set("Connection", "keep-alive")
 	resp.Header.Set("X-Accel-Buffering", "no")
 
-	go p.rewrite(originalBody, writer, verbose)
+	go p.rewrite(originalBody, writer, verbose, vverbose)
 	return nil
 }
 
@@ -227,16 +210,9 @@ type messagesFixState struct {
 
 // ---------- Rewrite loop ----------
 
-func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWriter, verbose bool) {
+func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWriter, verbose bool, vverbose bool) {
 	defer src.Close()
 	defer dst.Close()
-
-	// DEBUG: dump upstream input
-	fIn, _ := os.Create("./devproxy_messages_fix_input.log")
-	if fIn != nil {
-		defer fIn.Close()
-		src = &dumpReadCloser{src: src, dump: fIn}
-	}
 
 	scanner := bufio.NewScanner(src)
 	state := &messagesFixState{
@@ -757,7 +733,7 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 				if !state.sawMessageDelta {
 					p.writeMessageDelta(dst, state)
 					state.sawMessageDelta = true
-					if verbose {
+					if vverbose {
 						log.Printf("[%s] message_stop补齐 message_delta", p.Name())
 					}
 				}
@@ -797,7 +773,7 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 		}
 		p.writeRawJSON(dst, "message_stop", `{"type":"message_stop"}`)
 		state.sawMessageStop = true
-		if verbose {
+		if vverbose {
 			log.Printf("[%s] 上游未发 message_stop，补发收尾事件", p.Name())
 		}
 	}

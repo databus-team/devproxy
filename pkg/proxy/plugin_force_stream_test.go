@@ -46,7 +46,7 @@ func TestForceStreamPlugin_ProcessRequest(t *testing.T) {
 			bodyBytes, _ := json.Marshal(tt.payload)
 			req, _ := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(bodyBytes))
 
-			err := plugin.ProcessRequest(req)
+			err := plugin.ProcessRequest(req, true)
 			if err != nil {
 				t.Fatalf("ProcessRequest failed: %v", err)
 			}

@@ -49,7 +49,7 @@ func runMessagesFixPluginOpts(t *testing.T, lines []string, keepReasoning bool) 
 		Header: http.Header{"X-Devproxy-Messages-Fix": []string{"true"}},
 	}
 
-	if err := plugin.ProcessResponse(resp, ctx, false); err != nil {
+	if err := plugin.ProcessResponse(resp, ctx, false, false); err != nil {
 		t.Fatalf("ProcessResponse 失败: %v", err)
 	}
 
@@ -1106,7 +1106,7 @@ func TestMessagesFix_ProcessRequest_StripsThinking(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessRequest(req); err != nil {
+	if err := plugin.ProcessRequest(req, true); err != nil {
 		t.Fatalf("ProcessRequest failed: %v", err)
 	}
 

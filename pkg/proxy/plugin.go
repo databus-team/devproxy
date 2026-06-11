@@ -13,7 +13,7 @@ type RequestPlugin interface {
 	// Name 返回插件的名字，用于配置匹配
 	Name() string
 	// ProcessRequest 拦截并修改请求体。返回 error 则中断代理。
-	ProcessRequest(req *http.Request) error
+	ProcessRequest(req *http.Request, verbose bool) error
 }
 
 // ResponsePlugin 定义了一类可以在响应返回客户端前修改 *http.Response 的插件
@@ -21,7 +21,7 @@ type ResponsePlugin interface {
 	// Name 返回插件的名字
 	Name() string
 	// ProcessResponse 拦截并修改响应体。返回 error 则中断代理。
-	ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool) error
+	ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool, vverbose bool) error
 }
 
 // RequestPluginRegistry 请求插件注册表

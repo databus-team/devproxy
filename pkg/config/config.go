@@ -26,6 +26,7 @@ type Config struct {
 	Upstream        string            `yaml:"upstream"`
 	Port            int               `yaml:"port"`
 	Verbose         bool              `yaml:"verbose"`
+	VVerbose        bool              `yaml:"vverbose"`
 	DumpTraffic     bool              `yaml:"dump-traffic"`
 	LogFile         string            `yaml:"log-file"`
 }

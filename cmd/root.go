@@ -77,6 +77,11 @@ func loadConfig(cmd *cobra.Command) {
 				verbose = true
 			}
 		}
+		if !cmd.Flags().Changed("vverbose") {
+			if cfg.VVerbose {
+				vverbose = true
+			}
+		}
 		if !cmd.Flags().Changed("dump") {
 			if cfg.DumpTraffic {
 				dumpTraffic = true
@@ -116,6 +121,7 @@ var (
 	upstreamProxy       string
 	port                int
 	verbose             bool
+	vverbose            bool
 	dumpTraffic         bool
 	logFile             string
 	configFile          string
@@ -157,6 +163,7 @@ func init() {
 	rootCmd.Flags().StringVar(&upstreamProxy, "upstream", "", "上游代理地址 (例: http://127.0.0.1:7890)")
 	rootCmd.Flags().IntVar(&port, "port", 0, "代理服务器端口 (默认随机分配)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "详细日志输出")
+	rootCmd.Flags().BoolVar(&vverbose, "vverbose", false, "极详细日志输出 (记录上游事件流数据)")
 	rootCmd.Flags().BoolVar(&dumpTraffic, "dump", false, "输出完整的请求/响应头和正文 (用于详细调试)")
 	rootCmd.Flags().StringVar(&logFile, "log-file", "", "日志文件路径 (用于避免干扰交互式应用，如vim)")
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "配置文件路径 (支持 YAML 格式)")
@@ -177,6 +184,8 @@ func runProxyWorker(cmd *cobra.Command, args []string) {
 	// 从环境变量加载配置
 	vStr := os.Getenv("SMART_PROXY_VERBOSE")
 	isVerbose := vStr == "true"
+	vvStr := os.Getenv("SMART_PROXY_VVERBOSE")
+	isVVerbose := vvStr == "true"
 	pStr := os.Getenv("SMART_PROXY_PORT")
 	pPort, _ := strconv.Atoi(pStr)
 	uProxy := os.Getenv("SMART_PROXY_UPSTREAM")
@@ -189,6 +198,7 @@ func runProxyWorker(cmd *cobra.Command, args []string) {
 	// 创建代理服务器
 	log.SetPrefix("[PROXY-WORKER] ")
 	ps := proxy.NewProxyServer(pPort, uProxy, isVerbose, nil)
+	ps.VVerbose = isVVerbose
 	ps.DumpTraffic = isDump
 
 	// 添加匹配器
@@ -318,6 +328,7 @@ func run(cmd *cobra.Command, args []string) {
 		fmt.Sprintf("SMART_PROXY_PORT=%d", proxyPort),
 		fmt.Sprintf("SMART_PROXY_UPSTREAM=%s", upstreamProxy),
 		fmt.Sprintf("SMART_PROXY_VERBOSE=%v", verbose),
+		fmt.Sprintf("SMART_PROXY_VVERBOSE=%v", vverbose),
 		fmt.Sprintf("SMART_PROXY_DUMP=%v", dumpTraffic),
 	)
 
@@ -325,7 +336,7 @@ func run(cmd *cobra.Command, args []string) {
 	if logFile != "" {
 		proxyWorkerCmd.Stdout = logFileWriter
 		proxyWorkerCmd.Stderr = logFileWriter
-	} else if verbose || dumpTraffic {
+	} else if verbose || vverbose || dumpTraffic {
 		// 如果开启了详细日志或流量转储，且未指定日志文件，则输出到终端
 		proxyWorkerCmd.Stdout = os.Stdout
 		proxyWorkerCmd.Stderr = os.Stderr

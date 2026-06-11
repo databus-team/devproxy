@@ -33,6 +33,7 @@ type ProxyServer struct {
 	UpstreamProxy string
 	Rules         []*ProxyRule
 	Verbose       bool
+	VVerbose      bool // 极详细日志
 	DumpTraffic   bool
 	Logger        *log.Logger
 	proxy         *goproxy.ProxyHttpServer
@@ -293,7 +294,7 @@ func (s *ProxyServer) Start() error {
 			}
 
 			for _, plugin := range matchedRule.Plugins {
-				err := plugin.ProcessRequest(req)
+				err := plugin.ProcessRequest(req, s.Verbose)
 				if s.Verbose {
 					if err != nil {
 						s.Logger.Printf("[RULE:%s PLUGIN ERROR] %s: %v", matchedRule.Name, plugin.Name(), err)
@@ -351,7 +352,7 @@ func (s *ProxyServer) Start() error {
 
 			if matchedRule != nil && len(matchedRule.ResponsePlugins) > 0 {
 				for _, plugin := range matchedRule.ResponsePlugins {
-					err := plugin.ProcessResponse(resp, ctx, s.Verbose)
+					err := plugin.ProcessResponse(resp, ctx, s.Verbose, s.VVerbose)
 					if err != nil {
 						s.Logger.Printf("[RULE:%s RESPONSE PLUGIN ERROR] %s: %v", matchedRule.Name, plugin.Name(), err)
 					} else if s.Verbose {

@@ -37,7 +37,7 @@ func runPlugin(t *testing.T, lines []string) []map[string]interface{} {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, ctx, false); err != nil {
+	if err := plugin.ProcessResponse(resp, ctx, false, false); err != nil {
 		t.Fatalf("ProcessResponse 失败: %v", err)
 	}
 
@@ -481,7 +481,7 @@ func TestAnthropicThinkingFix_KeepAlive(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, ctx, false); err != nil {
+	if err := plugin.ProcessResponse(resp, ctx, false, false); err != nil {
 		t.Fatalf("ProcessResponse 失败: %v", err)
 	}
 

@@ -29,12 +29,12 @@ func (p *AnthropicThinkingFixPlugin) Name() string {
 	return "anthropic-thinking-fix"
 }
 
-func (p *AnthropicThinkingFixPlugin) ProcessRequest(req *http.Request) error {
+func (p *AnthropicThinkingFixPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 	req.Header.Set("Accept-Encoding", "identity")
 	return nil
 }
 
-func (p *AnthropicThinkingFixPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool) error {
+func (p *AnthropicThinkingFixPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool, vverbose bool) error {
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -52,7 +52,7 @@ func (p *AnthropicThinkingFixPlugin) ProcessResponse(resp *http.Response, ctx *g
 	resp.Header.Set("Connection", "keep-alive")
 	resp.Header.Set("X-Accel-Buffering", "no")
 
-	go p.rewrite(originalBody, writer, verbose)
+	go p.rewrite(originalBody, writer, verbose, vverbose)
 	return nil
 }
 
@@ -76,7 +76,7 @@ type thinkingFixState struct {
 	maxIndexSent int
 }
 
-func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWriter, verbose bool) {
+func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWriter, verbose bool, vverbose bool) {
 	defer src.Close()
 	defer dst.Close()
 
@@ -109,7 +109,7 @@ func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 					p.writeEvent(dst, "ping", map[string]interface{}{
 						"type": "ping",
 					})
-					if verbose {
+					if vverbose {
 						log.Printf("[%s] 自动发送 ping 保活事件 (已静默 %v)", p.Name(), idle.Round(time.Second))
 					}
 					// 主动刷新活跃时间，避免在依然没有真实数据时过于高频写入
@@ -133,7 +133,7 @@ func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 			if verbose {
 				log.Printf("[%s] 读取响应体出错: %v", p.Name(), err)
 			}
-			p.flushTrailing(dst, state, verbose)
+			p.flushTrailing(dst, state, verbose, vverbose)
 			return
 		}
 
@@ -143,7 +143,7 @@ func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 			pendingEventType = strings.TrimPrefix(trimmed, "event: ")
 		case strings.HasPrefix(trimmed, "data: "):
 			data := strings.TrimPrefix(trimmed, "data: ")
-			p.dispatch(dst, state, pendingEventType, data, verbose)
+			p.dispatch(dst, state, pendingEventType, data, verbose, vverbose)
 			pendingEventType = ""
 		case trimmed == "":
 			// 丢弃上游空行；writeEvent / writeRawEvent 会自动写 \n\n 分隔
@@ -152,13 +152,13 @@ func (p *AnthropicThinkingFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 		}
 
 		if err == io.EOF {
-			p.flushTrailing(dst, state, verbose)
+			p.flushTrailing(dst, state, verbose, vverbose)
 			return
 		}
 	}
 }
 
-func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixState, eventType, data string, verbose bool) {
+func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixState, eventType, data string, verbose bool, vverbose bool) {
 	var event map[string]interface{}
 	if err := json.Unmarshal([]byte(data), &event); err != nil {
 		p.writeRawEvent(dst, eventType, data)
@@ -212,7 +212,7 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 		deltaType, _ := delta["type"].(string)
 
 		if deltaType == "signature_delta" {
-			if verbose {
+			if vverbose {
 				log.Printf("[%s] 丢弃 signature_delta(index=%d)", p.Name(), index)
 			}
 			return
@@ -300,11 +300,11 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 		p.writeRawEvent(dst, eventType, data)
 
 	case "message_stop":
-		p.closeLingeringBlock(dst, state, verbose)
+		p.closeLingeringBlock(dst, state, verbose, vverbose)
 		if !state.sawMessageDelta {
 			p.writeMessageDelta(dst, state)
 			state.sawMessageDelta = true
-			if verbose {
+			if vverbose {
 				log.Printf("[%s] message_stop 前补发 message_delta", p.Name())
 			}
 		}
@@ -339,7 +339,7 @@ func (p *AnthropicThinkingFixPlugin) fixMessageStart(event map[string]interface{
 	}
 }
 
-func (p *AnthropicThinkingFixPlugin) closeLingeringBlock(dst io.Writer, state *thinkingFixState, verbose bool) {
+func (p *AnthropicThinkingFixPlugin) closeLingeringBlock(dst io.Writer, state *thinkingFixState, verbose bool, vverbose bool) {
 	if !state.hasOpenBlock {
 		return
 	}
@@ -352,16 +352,16 @@ func (p *AnthropicThinkingFixPlugin) closeLingeringBlock(dst io.Writer, state *t
 		"index": idx,
 	})
 	state.hasOpenBlock = false
-	if verbose {
+	if vverbose {
 		log.Printf("[%s] 收尾时补发 content_block_stop(index=%d)", p.Name(), idx)
 	}
 }
 
-func (p *AnthropicThinkingFixPlugin) flushTrailing(dst io.Writer, state *thinkingFixState, verbose bool) {
+func (p *AnthropicThinkingFixPlugin) flushTrailing(dst io.Writer, state *thinkingFixState, verbose bool, vverbose bool) {
 	if state.sawMessageStop {
 		return
 	}
-	p.closeLingeringBlock(dst, state, verbose)
+	p.closeLingeringBlock(dst, state, verbose, vverbose)
 	if !state.sawMessageDelta {
 		p.writeMessageDelta(dst, state)
 		state.sawMessageDelta = true
@@ -370,7 +370,7 @@ func (p *AnthropicThinkingFixPlugin) flushTrailing(dst io.Writer, state *thinkin
 		"type": "message_stop",
 	})
 	state.sawMessageStop = true
-	if verbose {
+	if vverbose {
 		log.Printf("[%s] 上游未发 message_stop，补发收尾事件", p.Name())
 	}
 }

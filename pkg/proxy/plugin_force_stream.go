@@ -16,7 +16,7 @@ func (p *ForceStreamPlugin) Name() string {
 	return "force-stream"
 }
 
-func (p *ForceStreamPlugin) ProcessRequest(req *http.Request) error {
+func (p *ForceStreamPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 	if req.Method != http.MethodPost {
 		return nil
 	}
@@ -36,7 +36,9 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request) error {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		// 不是 JSON 或解析失败，原样回写
-		log.Printf("[%s] JSON 解析失败: %v, Body: %s", p.Name(), err, string(bodyBytes))
+		if verbose {
+			log.Printf("[%s] JSON 解析失败: %v, Body: %s", p.Name(), err, string(bodyBytes))
+		}
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		return nil
 	}
@@ -49,13 +51,17 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request) error {
 
 		newBodyBytes, err := json.Marshal(payload)
 		if err != nil {
-			log.Printf("[%s] 序列化失败: %v", p.Name(), err)
+			if verbose {
+				log.Printf("[%s] 序列化失败: %v", p.Name(), err)
+			}
 			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			return nil
 		}
 
 		// 调试日志：输出修改后的完整 payload
-		log.Printf("[%s] 修正后的 Payload: %s", p.Name(), string(newBodyBytes))
+		if verbose {
+			log.Printf("[%s] 修正后的 Payload: %s", p.Name(), string(newBodyBytes))
+		}
 
 		req.Body = io.NopCloser(bytes.NewReader(newBodyBytes))
 		req.ContentLength = int64(len(newBodyBytes))
@@ -66,7 +72,9 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request) error {
 			req.Header.Set("Accept", "text/event-stream")
 		}
 
-		log.Printf("[%s] 缺失 stream 字段，已强制补全为 true", p.Name())
+		if verbose {
+			log.Printf("[%s] 缺失 stream 字段，已强制补全为 true", p.Name())
+		}
 		return nil
 	}
 

@@ -175,7 +175,7 @@ type Content struct {
 	Text string `json:"text"`
 }
 
-func (p *ResponsesAPIPlugin) ProcessRequest(req *http.Request) error {
+func (p *ResponsesAPIPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 	// Only intercept requests ending with /v1/responses
 	path := req.URL.Path
 	if !strings.HasSuffix(path, "/v1/responses") {
@@ -200,7 +200,9 @@ func (p *ResponsesAPIPlugin) ProcessRequest(req *http.Request) error {
 	// 3. Unmarshal Responses API request
 	var respReq ResponsesAPIRequest
 	if err := json.Unmarshal(bodyBytes, &respReq); err != nil {
-		log.Printf("[responses-api] Warning: failed to parse request body: %v", err)
+		if verbose {
+			log.Printf("[responses-api] Warning: failed to parse request body: %v", err)
+		}
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		return nil
 	}
@@ -259,7 +261,9 @@ func (p *ResponsesAPIPlugin) ProcessRequest(req *http.Request) error {
 	// Mark this request as a Responses API request so ProcessResponse can handle it
 	req.Header.Set("X-DevProxy-Responses-API", "true")
 
-	log.Printf("[responses-api] Rewrote request /v1/responses -> /v1/chat/completions (model: %s)", respReq.Model)
+	if verbose {
+		log.Printf("[responses-api] Rewrote request /v1/responses -> /v1/chat/completions (model: %s)", respReq.Model)
+	}
 	return nil
 }
 
@@ -522,11 +526,7 @@ func (p *ResponsesAPIPlugin) transformToolChoice(choice interface{}) interface{}
 	return choice
 }
 
-func (p *ResponsesAPIPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool) error {
-	if resp.Request == nil {
-		return nil
-	}
-
+func (p *ResponsesAPIPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.ProxyCtx, verbose bool, vverbose bool) error {
 	// Detection logic:
 	// 1. Check for our internal marker header
 	isResponsesAPI := resp.Request.Header.Get("X-DevProxy-Responses-API") == "true"
@@ -568,11 +568,11 @@ func (p *ResponsesAPIPlugin) ProcessResponse(resp *http.Response, ctx *goproxy.P
 	}
 
 	if strings.Contains(contentType, "application/json") {
-		return p.handleJSON(resp, verbose)
+		return p.handleJSON(resp, verbose, vverbose)
 	}
 
 	if strings.Contains(contentType, "text/event-stream") {
-		return p.handleStream(resp, verbose)
+		return p.handleStream(resp, verbose, vverbose)
 	}
 
 	return nil
@@ -631,7 +631,7 @@ func (p *ResponsesAPIPlugin) parseContent(contentStr string) []Content {
 	return parts
 }
 
-func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool) error {
+func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool, vverbose bool) error {
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("responses-api: failed to read response body: %w", err)
@@ -700,7 +700,7 @@ func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool) error
 	return nil
 }
 
-func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) error {
+func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool, vverbose bool) error {
 	reader, writer := io.Pipe()
 	originalBody := resp.Body
 	resp.Body = reader
@@ -723,7 +723,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 		var createdAt int64
 		var model string
 
-		if verbose {
+		if vverbose {
 			log.Printf("[responses-api] handleStream: started with 4KB buffer")
 		}
 
@@ -764,7 +764,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 
 		// writeEventWrapper wraps writeEvent and logs errors for client disconnect detection
 		writeEventWrapper := func(eventType string, data interface{}) bool {
-			if verbose {
+			if vverbose {
 				log.Printf("[responses-api] Writing event: %s", eventType)
 			}
 			if err := p.writeEvent(writer, eventType, data); err != nil {
@@ -1043,7 +1043,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			if verbose {
+			if vverbose {
 				logLen := len(line)
 				if logLen > 50 {
 					logLen = 50
@@ -1062,7 +1062,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 				if strings.HasPrefix(line, "data: ") {
 					data := strings.TrimPrefix(line, "data: ")
 					if data == "[DONE]" {
-						if verbose {
+						if vverbose {
 							log.Printf("[responses-api] Received [DONE], sending final events")
 						}
 						sendFinalEvents(nil)
@@ -1075,7 +1075,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 					} else {
 						var chunk ChatCompletionChunk
 						if errUnmarshal := json.Unmarshal([]byte(data), &chunk); errUnmarshal == nil && len(chunk.ID) > 0 {
-							if verbose {
+							if vverbose {
 								log.Printf("[responses-api] Parsed chunk: ID=%s, Choices=%d", chunk.ID, len(chunk.Choices))
 							}
 							if responseID == "" {
@@ -1295,7 +1295,7 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool) err
 								}
 							}
 						} else {
-							if verbose {
+							if vverbose {
 								log.Printf("[responses-api] Failed to parse chunk or empty ID: %v, data: %s", errUnmarshal, line[:min(100, len(line))])
 							}
 							// Forward non-JSON or unparseable data as-is

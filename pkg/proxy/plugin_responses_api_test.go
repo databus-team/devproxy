@@ -31,7 +31,7 @@ func TestResponsesAPIPlugin_ProcessRequest(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(bodyBytes))
 
-	if err := plugin.ProcessRequest(req); err != nil {
+	if err := plugin.ProcessRequest(req, true); err != nil {
 		t.Fatalf("ProcessRequest failed: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestResponsesAPIPlugin_ProcessResponse_Ignored(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -178,7 +178,7 @@ func TestResponsesAPIPlugin_ProcessResponse_Stream(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_WithThink(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -289,7 +289,7 @@ func TestResponsesAPIPlugin_ProcessResponse_Stream_WithThink(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -342,7 +342,7 @@ func TestResponsesAPIPlugin_ProcessRequest_StripsThink(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(bodyBytes))
 
-	if err := plugin.ProcessRequest(req); err != nil {
+	if err := plugin.ProcessRequest(req, true); err != nil {
 		t.Fatalf("ProcessRequest failed: %v", err)
 	}
 
@@ -398,7 +398,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_StripThink(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -448,7 +448,7 @@ func TestResponsesAPIPlugin_ProcessResponse_Stream_StripThink(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -530,7 +530,7 @@ func TestResponsesAPIPlugin_ProcessResponse_JSON_XMLToolCall(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "application/json")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
@@ -596,7 +596,7 @@ func TestResponsesAPIPlugin_ProcessResponse_Stream_XMLToolCall(t *testing.T) {
 	}
 	resp.Header.Set("Content-Type", "text/event-stream")
 
-	if err := plugin.ProcessResponse(resp, nil, true); err != nil {
+	if err := plugin.ProcessResponse(resp, nil, true, true); err != nil {
 		t.Fatalf("ProcessResponse failed: %v", err)
 	}
 
