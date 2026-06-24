@@ -154,7 +154,7 @@ func TestMessagesFix_ThinkingStripped(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" thinkingThe"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<think>The"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" user"}}`,
 		"event: content_block_delta",
@@ -170,7 +170,7 @@ func TestMessagesFix_ThinkingStripped(t *testing.T) {
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":".\n"}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" response"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"</think>"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\n\n"}}`,
 		"event: content_block_delta",
@@ -207,7 +207,7 @@ func TestMessagesFix_ThinkingStripped(t *testing.T) {
 
 	// 正文应保留
 	if !strings.Contains(text, "Hello") {
-		t.Errorf(" response 之后的正文应保留，实际: %q", text)
+		t.Errorf(" </think> 之后的正文应保留，实际: %q", text)
 	}
 }
 
@@ -220,11 +220,11 @@ func TestMessagesFix_KeepReasoning_ThinkingBlock(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" thinkingI need to search"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<think>I need to search"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" for files."}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" response\n\nLet me check."}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"</think>\n\nLet me check."}}`,
 		"event: content_block_stop",
 		`data: {"type":"content_block_stop","index":0}`,
 		"event: message_delta",
@@ -383,11 +383,11 @@ func TestMessagesFix_ThinkingPlusXMLToolCall(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" thinkingLet me read"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<think>Let me read"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" the file."}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" response\n\n"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"</think>\n\n"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<invoke name=\"Read\">\n"}}`,
 		"event: content_block_delta",
@@ -437,9 +437,7 @@ func TestMessagesFix_KeepReasoning_ThinkingPlusXML(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" thinkingI need to read the file."}}`,
-		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" response\n\n"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<think>I need to read the file.</think>\n\n"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<invoke name=\"Read\">\n"}}`,
 		"event: content_block_delta",
@@ -544,15 +542,15 @@ func TestMessagesFix_ThinkingAcrossChunks(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"  thin"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"  <thi"}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"kingHmm"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"nk>Hmm"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" resp"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" </thi"}}`,
 		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"onse\n\n"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"nk>\n\n"}}`,
 		"event: content_block_delta",
 		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}`,
 		"event: content_block_stop",
@@ -570,7 +568,7 @@ func TestMessagesFix_ThinkingAcrossChunks(t *testing.T) {
 	}
 
 	if !strings.Contains(text, "Hello") {
-		t.Errorf(" response 之后的正文应保留，实际: %q", text)
+		t.Errorf(" </think> 之后的正文应保留，实际: %q", text)
 	}
 }
 
@@ -688,100 +686,8 @@ func TestMessagesFix_MinimaxToolCallOnly(t *testing.T) {
 	}
 }
 
-// ---------- Test: 中文化 思考/回答 标签 ----------
-
-func TestMessagesFix_ChineseThinkingTags(t *testing.T) {
-	stream := []string{
-		"event: message_start",
-		`data: {"type":"message_start","message":{"type":"message","model":"test","role":"assistant","id":"msg_1","content":[]}}`,
-		"event: content_block_start",
-		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" 思考让我想想..."}}`,
-		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" 回答\n\n这是答案。"}}`,
-		"event: content_block_stop",
-		`data: {"type":"content_block_stop","index":0}`,
-		"event: message_delta",
-		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}`,
-		"event: message_stop",
-		`data: {"type":"message_stop"}`,
-	}
-
-	events := runMessagesFixPlugin(t, stream)
-
-	// 默认模式下思考内容应被剥离
-	text := collectTextDeltasMF(events, 0)
-	if strings.Contains(text, "让我想想") {
-		t.Errorf("中文化思考内容应被剥离，实际: %q", text)
-	}
-	if !strings.Contains(text, "这是答案") {
-		t.Errorf("中文化回答后的正文应保留，实际: %q", text)
-	}
-}
-
-// ---------- Test: 中文化思考 + KeepReasoning ----------
-
-func TestMessagesFix_KeepReasoning_ChineseThinking(t *testing.T) {
-	stream := []string{
-		"event: message_start",
-		`data: {"type":"message_start","message":{"type":"message","model":"test","role":"assistant","id":"msg_1","content":[]}}`,
-		"event: content_block_start",
-		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
-		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" 思考让我想想..."}}`,
-		"event: content_block_delta",
-		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" 回答\n\n这是答案。"}}`,
-		"event: content_block_stop",
-		`data: {"type":"content_block_stop","index":0}`,
-		"event: message_delta",
-		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}`,
-		"event: message_stop",
-		`data: {"type":"message_stop"}`,
-	}
-
-	events := runMessagesFixPluginWithKeepReasoning(t, stream)
-
-	// 应该有 thinking block
-	thinkStart := findMessagesFixEvent(events, func(ev map[string]interface{}) bool {
-		if ev["type"] != "content_block_start" {
-			return false
-		}
-		cb, _ := ev["content_block"].(map[string]interface{})
-		return cb != nil && cb["type"] == "thinking"
-	})
-	if thinkStart < 0 {
-		t.Fatalf("中文化思考也应生成 thinking block\n%s", dumpEvents(events))
-	}
-
-	thinkIdx := events[thinkStart]["index"].(float64)
-	thinkText := collectThinkingDeltas(events, thinkIdx)
-	if !strings.Contains(thinkText, "让我想想") {
-		t.Errorf("thinking_delta 应包含中文化思考内容，实际: %q", thinkText)
-	}
-
-	// 之后应有 text block
-	textStart := findMessagesFixEvent(events, func(ev map[string]interface{}) bool {
-		if ev["type"] != "content_block_start" {
-			return false
-		}
-		cb, _ := ev["content_block"].(map[string]interface{})
-		if cb == nil || cb["type"] != "text" {
-			return false
-		}
-		idx, _ := ev["index"].(float64)
-		return idx > thinkIdx
-	})
-	if textStart < 0 {
-		t.Fatalf("中文化回答后应有 text block\n%s", dumpEvents(events))
-	}
-
-	textIdx := events[textStart]["index"].(float64)
-	text := collectTextDeltas(events, textIdx)
-	if !strings.Contains(text, "这是答案") {
-		t.Errorf("text block 应包含中文化回答后的正文，实际: %q", text)
-	}
-}
+// 中文化思考事件在此版插件中已被移除检测，改为了只使用 <think> </think> 作为检测
+// 因此删除了对应的 ChineseThinking 专有测试用例。
 
 // ---------- Test: 真实上游流端到端验证 ----------
 
@@ -792,7 +698,7 @@ func TestMessagesFix_RealUpstreamStream(t *testing.T) {
 		"event: content_block_start",
 		`data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}`,
 		"event: content_block_delta",
-		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " thinkingThe"}}`,
+		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "<think>The"}}`,
 		"event: content_block_delta",
 		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " user"}}`,
 		"event: content_block_delta",
@@ -870,7 +776,7 @@ func TestMessagesFix_RealUpstreamStream(t *testing.T) {
 		"event: content_block_delta",
 		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": ".\n"}}`,
 		"event: content_block_delta",
-		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " response"}}`,
+		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "</think>"}}`,
 		"event: content_block_delta",
 		`data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "\n\n\n"}}`,
 		"event: content_block_delta",
@@ -1146,5 +1052,44 @@ func TestMessagesFix_ProcessRequest_StripsThinking(t *testing.T) {
 		}
 	} else {
 		t.Errorf("expected assistant content to be string, got %T: %v", content, content)
+	}
+}
+
+func TestMessagesFix_AvoidThinkingWordInText(t *testing.T) {
+	stream := []string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"type":"message","model":"test","role":"assistant","id":"msg_1","content":[]}}`,
+		"event: content_block_start",
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello, I am "}}`,
+		"event: content_block_delta",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"thinking about the anthropic-thinking-fix plugin."}}`,
+		"event: content_block_stop",
+		`data: {"type":"content_block_stop","index":0}`,
+		"event: message_delta",
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":15}}`,
+		"event: message_stop",
+		`data: {"type":"message_stop"}`,
+	}
+
+	// 即使 KeepReasoning 是 true，由于 "thinking" 出现之前已经有真正的正文 "Hello, I am " 发送了，
+	// 所以 "thinking" 以及后面的内容不应该被识别为思维链开始，而应该作为普通文本继续发送。
+	events := runMessagesFixPluginWithKeepReasoning(t, stream)
+
+	// 不应该有 type 为 thinking 的 content_block
+	for _, ev := range events {
+		if ev["type"] == "content_block_start" {
+			cb, _ := ev["content_block"].(map[string]interface{})
+			if cb != nil && cb["type"] == "thinking" {
+				t.Fatalf("正文中的 thinking 单词不应被误判为思维链 block\n%s", dumpEvents(events))
+			}
+		}
+	}
+
+	text := collectTextDeltasMF(events, 0)
+	expected := "Hello, I am thinking about the anthropic-thinking-fix plugin."
+	if text != expected {
+		t.Errorf("期望文本为 %q，实际为 %q", expected, text)
 	}
 }

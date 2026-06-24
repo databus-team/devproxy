@@ -197,6 +197,7 @@ type messagesFixState struct {
 	openIndex    int
 
 	emittedThinkingBlock bool
+	hasEmittedText       bool // 记录是否已经发送过真正的正文文本，用于防止正文中的 "thinking" 等词被误判为思维链开始
 
 	sawToolUse      bool
 	maxIndexSent    int
@@ -226,14 +227,10 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 	var upstreamTextIndex int = -1
 
 	knownTags := []string{
-		" thinking", " 思考",
-		" response", " 回答",
+		"<think>", "</think>",
 		"<invoke", "</invoke>",
 		"<minimax:tool_call>", "</minimax:tool_call>",
 		"<parameter", "</parameter>",
-		" thinking", " response",
-		"&lt;think&gt;", "&lt;/think&gt;",
-		"<think>", "</think>",
 	}
 	knownPartialLen := func(s string) int {
 		maxLen := 0
@@ -304,6 +301,9 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 	flushTextDelta := func(text string) {
 		if len(text) == 0 || !state.hasOpenBlock {
 			return
+		}
+		if strings.TrimSpace(text) != "" {
+			state.hasEmittedText = true
 		}
 		p.writeRawJSON(dst, "content_block_delta", fmt.Sprintf(
 			`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":%s}}`,
@@ -385,34 +385,23 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 	//   " thinking" / " 思考" (marker-based format)
 	//   "&lt;think&gt;" (HTML-entity format, some upstream variants)
 	findThinkTag := func() (int, int) {
-		for _, tag := range []string{
-			" thinking",             // XML: <think>
-			" 思考",
-			"&lt;think&gt;",        // HTML entity format
-			"<think>",             // standard think tag
-			"thinking", "思考",
-		} {
-			idx := strings.Index(pendingText, tag)
-			if idx != -1 {
-				return idx, idx + len(tag)
-			}
+		if state.hasEmittedText {
+			return -1, -1
+		}
+		tag := "<think>"
+		idx := strings.Index(pendingText, tag)
+		if idx != -1 {
+			return idx, idx + len(tag)
 		}
 		return -1, -1
 	}
 
 	// findResponseTag detects think block end markers.
 	findResponseTag := func() (int, int) {
-		for _, tag := range []string{
-			" response",             // XML: </think>
-			" 回答",
-			"&lt;/think&gt;",       // HTML entity format
-			"</think>",            // standard end think tag
-			"response", "回答",
-		} {
-			idx := strings.Index(pendingText, tag)
-			if idx != -1 {
-				return idx, idx + len(tag)
-			}
+		tag := "</think>"
+		idx := strings.Index(pendingText, tag)
+		if idx != -1 {
+			return idx, idx + len(tag)
 		}
 		return -1, -1
 	}
