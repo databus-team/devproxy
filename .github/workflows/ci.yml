@@ -1,107 +1,75 @@
-name: CI
+name: Build
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags: ["v*"]
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+          check-latest: true
+      - run: go test -v -race ./...
+        env:
+          TZ: Asia/Shanghai
+
   build:
-    name: Build and Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: Build
-        run: go build -v ./...
-
-      - name: Test
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.txt
-          fail_ci_if_error: false
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          only-new-issues: true
-
-  cross-build:
-    name: Cross Build (${{ matrix.os }}-${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    name: Build
+    needs: [test]
     strategy:
       matrix:
-        include:
-          - os: linux
-            arch: amd64
-            artifact: devproxy-linux-amd64
-          - os: linux
-            arch: arm64
-            artifact: devproxy-linux-arm64
-          - os: darwin
-            arch: amd64
-            artifact: devproxy-darwin-amd64
-          - os: darwin
-            arch: arm64
-            artifact: devproxy-darwin-arm64
-          - os: windows
-            arch: amd64
-            artifact: devproxy-windows-amd64.exe
-          - os: windows
-            arch: arm64
-            artifact: devproxy-windows-arm64.exe
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+        exclude:
+          - goos: windows
+            goarch: arm64
+
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
-          cache: true
-
+          go-version: "1.24"
+          check-latest: true
       - name: Get version
         id: version
-        run: echo "VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" >> $GITHUB_OUTPUT
-
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
       - name: Build
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          echo "Building for $GOOS/$GOARCH..."
-          CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/daydaychen/devproxy/pkg/util.Version=$VERSION" -o "${{ matrix.artifact }}" main.go
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          EXTENSION=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXTENSION=".exe"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags "-s -w -X github.com/daydaychen/devproxy/pkg/util.Version=${{ steps.version.outputs.VERSION }}" \
+            -o "devproxy-${{ matrix.goos }}-${{ matrix.goarch }}${EXTENSION}" main.go
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
-          retention-days: 1
+          name: devproxy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+          path: devproxy-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum devproxy-* > checksums.txt
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          generate_release_notes: true
