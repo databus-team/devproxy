@@ -4,7 +4,7 @@ BINARY_NAME=devproxy
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-X github.com/daydaychen/devproxy/pkg/util.Version=$(VERSION)
 BUILD_DIR=build
-PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) main.go
