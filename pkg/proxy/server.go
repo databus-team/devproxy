@@ -88,7 +88,7 @@ func NewProxyServer(port int, upstream string, verbose bool, logger *log.Logger)
 
 		// 超时配置
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: 180 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 
 		// HTTP/2 支持
