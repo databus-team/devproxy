@@ -1,5 +1,12 @@
 # 更新日志
 
+## [0.6.1](https://github.com/databus-team/devproxy/compare/v0.6.0...v0.6.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* **proxy:** 增加响应头超时时间至180秒以改善连接稳定性 ([6dc4b94](https://github.com/databus-team/devproxy/commit/6dc4b94fc40e1d86559705423272163741f2884a))
+
 ## [0.5.0](https://github.com/databus-team/devproxy/compare/v0.4.0...v0.5.0) (2026-06-24)
 
 
