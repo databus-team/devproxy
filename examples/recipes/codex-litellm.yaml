@@ -1,0 +1,17 @@
+# Codex -> devproxy -> LiteLLM Proxy
+#
+# Use when Codex sends OpenAI Responses API requests, but the selected
+# LiteLLM-backed provider only supports Chat Completions upstream.
+verbose: true
+log-file: ./devproxy-codex-litellm.log
+upstream: http://127.0.0.1:4000
+
+rules:
+  - name: codex-responses-to-litellm-chat
+    match:
+      - /v1/responses
+    plugins:
+      - responses-api
+    response_plugins:
+      - responses-api
+

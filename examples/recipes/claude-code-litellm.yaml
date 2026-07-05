@@ -1,0 +1,25 @@
+# Claude Code -> devproxy -> LiteLLM Proxy
+#
+# Use when an Anthropic-compatible Messages stream contains non-standard
+# thinking/tool-use events that Claude Code rejects.
+verbose: true
+log-file: ./devproxy-claude-code-litellm.log
+upstream: http://127.0.0.1:4000
+
+rules:
+  - name: claude-code-anthropic-messages-fix
+    match:
+      - /v1/messages
+    plugins:
+      - anthropic-messages-fix
+    response_plugins:
+      - anthropic-messages-fix
+
+  - name: claude-code-thinking-lifecycle-fix
+    match:
+      - /v1/messages
+    plugins:
+      - anthropic-thinking-fix
+    response_plugins:
+      - anthropic-thinking-fix
+

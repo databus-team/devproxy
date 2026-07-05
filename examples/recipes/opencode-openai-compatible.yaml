@@ -1,0 +1,17 @@
+# opencode -> devproxy -> OpenAI-compatible provider
+#
+# Use when an OpenAI-compatible provider has streaming/tool-call shape issues
+# or omits stream:true while stream_options is present.
+verbose: true
+log-file: ./devproxy-opencode-openai-compatible.log
+
+rules:
+  - name: opencode-chat-completions-stream-fixes
+    match:
+      - /v1/chat/completions
+    plugins:
+      - force-stream
+      - openai-tool-calls-fix
+    response_plugins:
+      - openai-tool-calls-fix
+
