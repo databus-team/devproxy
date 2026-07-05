@@ -48,6 +48,10 @@ func init() {
 	messagesFixPlugin := &AnthropicMessagesFixPlugin{}
 	RegisterPlugin(messagesFixPlugin)
 	RegisterResponsePlugin(messagesFixPlugin)
+
+	openAIToolCallsFixPlugin := &OpenAIToolCallsFixPlugin{}
+	RegisterPlugin(openAIToolCallsFixPlugin)
+	RegisterResponsePlugin(openAIToolCallsFixPlugin)
 }
 
 // RegisterPlugin 注册一个请求插件
