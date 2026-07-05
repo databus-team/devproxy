@@ -13,15 +13,13 @@ import (
 	"github.com/elazarl/goproxy"
 )
 
-
-
 // AnthropicMessagesFixPlugin 修复上游 /v1/messages 端点返回的流式事件中的问题：
 //
 //  1. 将  thinking... 思考 /  thinking...  response 从 text_delta 中剥离：
 //     - 默认模式（KeepReasoning=false）：丢弃思考内容，只保留正文
 //     - KeepReasoning=true：将思考转为标准 Anthropic thinking content_block 事件
-//       （content_block_start thinking → thinking_delta → content_block_stop →
-//       content_block_start text → ...），参考 anthropic-thinking-fix 的透传格式
+//     （content_block_start thinking → thinking_delta → content_block_stop →
+//     content_block_start text → ...），参考 anthropic-thinking-fix 的透传格式
 //
 //  2. 将 <invoke>/<minimax:tool_call> XML 工具调用从 text_delta 中提取，
 //     转换为符合 Anthropic 规范的 tool_use content_block
@@ -82,6 +80,7 @@ func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request, verbose b
 	}
 
 	modified := false
+	removedThinkingBlocks := 0
 	for i, m := range messages {
 		msg, ok := m.(map[string]interface{})
 		if !ok {
@@ -105,6 +104,7 @@ func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request, verbose b
 				partType, _ := part["type"].(string)
 				if partType == "thinking" {
 					hasThinking = true
+					removedThinkingBlocks++
 					continue
 				}
 				newContentArr = append(newContentArr, c)
@@ -148,6 +148,15 @@ func (p *AnthropicMessagesFixPlugin) ProcessRequest(req *http.Request, verbose b
 		req.ContentLength = int64(len(newBodyBytes))
 		req.Header.Set("Content-Length", fmt.Sprint(len(newBodyBytes)))
 		req.Header.Del("Transfer-Encoding")
+		if verbose {
+			log.Print(RepairReport{
+				Plugin:  p.Name(),
+				Request: req.URL.Path,
+				Actions: []RepairAction{
+					{Name: "remove_request_thinking_blocks", Count: removedThinkingBlocks},
+				},
+			}.String())
+		}
 	}
 
 	return nil
@@ -373,7 +382,13 @@ func (p *AnthropicMessagesFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWrit
 		})
 
 		if verbose {
-			log.Printf("[%s] XML tool_use: name=%s, args=%s, index=%d", p.Name(), tc.Name, tc.Arguments, newIndex)
+			log.Printf("[%s] XML tool_use: name=%s, args=%s, index=%d", p.Name(), tc.Name, RedactedSnippet(tc.Arguments, 256), newIndex)
+			log.Print(RepairReport{
+				Plugin: p.Name(),
+				Actions: []RepairAction{
+					{Name: "xml_text_to_tool_use", Count: 1, Detail: fmt.Sprintf("name=%s index=%d", tc.Name, newIndex)},
+				},
+			}.String())
 		}
 	}
 

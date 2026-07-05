@@ -66,6 +66,9 @@ func (c *CodexFixPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 		return nil
 	}
 
+	contentArrayCountBefore := countAssistantContentArrays(payload)
+	modelBefore, _ := payload["model"].(string)
+
 	// 3. 寻找并处理消息容器 (递归或特定路径)
 	modified := c.processPayload(payload, verbose)
 
@@ -114,6 +117,28 @@ func (c *CodexFixPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 
 	if verbose {
 		log.Printf("[codex-fix] 请求已成功重写并重新包装 (新长度: %d)", req.ContentLength)
+		report := RepairReport{
+			Plugin:  c.Name(),
+			Request: req.URL.Path,
+		}
+		contentArrayCountAfter := countAssistantContentArrays(payload)
+		if contentArrayCountBefore > contentArrayCountAfter {
+			report.Actions = append(report.Actions, RepairAction{
+				Name:  "content_array_to_string",
+				Count: contentArrayCountBefore - contentArrayCountAfter,
+			})
+		}
+		if c.TargetModel != "" && modelBefore != "" && modelBefore != c.TargetModel {
+			report.Actions = append(report.Actions, RepairAction{
+				Name:   "model_substitution",
+				Count:  1,
+				Detail: fmt.Sprintf("%s -> %s", modelBefore, c.TargetModel),
+			})
+		}
+		if len(report.Actions) == 0 {
+			report.Actions = append(report.Actions, RepairAction{Name: "body_rewrite", Count: 1})
+		}
+		log.Print(report.String())
 	}
 	return nil
 }
@@ -216,4 +241,40 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+func countAssistantContentArrays(payload map[string]interface{}) int {
+	count := 0
+	for _, field := range []string{"messages", "input", "history"} {
+		messages, ok := payload[field].([]interface{})
+		if !ok {
+			continue
+		}
+		count += countAssistantContentArraysInMessages(messages)
+	}
+	for _, nestedField := range []string{"input", "input_data"} {
+		nested, ok := payload[nestedField].(map[string]interface{})
+		if ok {
+			count += countAssistantContentArrays(nested)
+		}
+	}
+	return count
+}
+
+func countAssistantContentArraysInMessages(messages []interface{}) int {
+	count := 0
+	for _, msgIntf := range messages {
+		msg, ok := msgIntf.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := msg["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+		if _, ok := msg["content"].([]interface{}); ok {
+			count++
+		}
+	}
+	return count
 }

@@ -263,6 +263,14 @@ func (p *ResponsesAPIPlugin) ProcessRequest(req *http.Request, verbose bool) err
 
 	if verbose {
 		log.Printf("[responses-api] Rewrote request /v1/responses -> /v1/chat/completions (model: %s)", respReq.Model)
+		log.Print(RepairReport{
+			Plugin:  p.Name(),
+			Request: "/v1/responses",
+			Actions: []RepairAction{
+				{Name: "path_responses_to_chat_completions", Count: 1},
+				{Name: "body_responses_to_chat_completions", Count: 1},
+			},
+		}.String())
 	}
 	return nil
 }
@@ -697,6 +705,16 @@ func (p *ResponsesAPIPlugin) handleJSON(resp *http.Response, verbose bool, vverb
 	resp.ContentLength = int64(len(newBodyBytes))
 	resp.Header.Set("Content-Length", fmt.Sprint(len(newBodyBytes)))
 
+	if verbose {
+		log.Print(RepairReport{
+			Plugin:  p.Name(),
+			Request: resp.Request.URL.Path,
+			Actions: []RepairAction{
+				{Name: "json_chat_completion_to_response", Count: 1},
+			},
+		}.String())
+	}
+
 	return nil
 }
 
@@ -711,6 +729,16 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool, vve
 	resp.Header.Set("X-Accel-Buffering", "no")
 	// Ensure Content-Type is set for SSE
 	resp.Header.Set("Content-Type", "text/event-stream")
+
+	if verbose {
+		log.Print(RepairReport{
+			Plugin:  p.Name(),
+			Request: resp.Request.URL.Path,
+			Actions: []RepairAction{
+				{Name: "sse_chat_completion_to_responses", Count: 1},
+			},
+		}.String())
+	}
 
 	go func() {
 		defer originalBody.Close()
@@ -739,9 +767,9 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool, vve
 
 		var reasoningContent strings.Builder
 		var outputTextContent strings.Builder
-		
+
 		var messageSeqNum int
-		
+
 		// To track which parts we've added
 		var reasoningPartAdded bool
 		var reasoningPartDone bool
@@ -1176,14 +1204,14 @@ func (p *ResponsesAPIPlugin) handleStream(resp *http.Response, verbose bool, vve
 														}
 
 														if !writeEventWrapper("response.output_item.added", ResponsesAPIEvent{
-															Type: "response.output_item.added", ResponseID: responseID, OutputIndex: idx+1,
+															Type: "response.output_item.added", ResponseID: responseID, OutputIndex: idx + 1,
 															Item: &Item{ID: tItemID, Type: "function_call", Status: "in_progress", Name: tc.Name, CallID: callID},
 														}) {
 															return
 														}
 
 														if !writeEventWrapper("response.output_item.done", ResponsesAPIEvent{
-															Type: "response.output_item.done", ResponseID: responseID, OutputIndex: idx+1,
+															Type: "response.output_item.done", ResponseID: responseID, OutputIndex: idx + 1,
 															Item: &Item{ID: tItemID, Type: "function_call", Status: "completed", Name: tc.Name, Arguments: tc.Arguments, CallID: callID},
 														}) {
 															return
@@ -1365,7 +1393,7 @@ type XMLToolCallInfo struct {
 
 func parseXMLToolCalls(s string) ([]XMLToolCallInfo, string) {
 	var toolCalls []XMLToolCallInfo
-	
+
 	// 首先找到所有的 invoke 块
 	matches := invokeRegex.FindAllStringSubmatchIndex(s, -1)
 	if len(matches) == 0 {
@@ -1376,7 +1404,7 @@ func parseXMLToolCalls(s string) ([]XMLToolCallInfo, string) {
 		rawText := s[match[0]:match[1]]
 		name := s[match[2]:match[3]]
 		innerParams := s[match[4]:match[5]]
-		
+
 		// 解析参数
 		params := make(map[string]string)
 		paramMatches := paramRegex.FindAllStringSubmatch(innerParams, -1)
@@ -1385,16 +1413,16 @@ func parseXMLToolCalls(s string) ([]XMLToolCallInfo, string) {
 			pValue := pm[2]
 			params[pName] = pValue
 		}
-		
+
 		argBytes, _ := json.Marshal(params)
-		
+
 		toolCalls = append(toolCalls, XMLToolCallInfo{
 			Name:      name,
 			Arguments: string(argBytes),
 			RawText:   rawText,
 		})
 	}
-	
+
 	// 从正文中删除这些 XML，并清理 minimax:tool_call 标签
 	cleaned := s
 	for _, tc := range toolCalls {
@@ -1402,6 +1430,6 @@ func parseXMLToolCalls(s string) ([]XMLToolCallInfo, string) {
 	}
 	cleaned = minimaxCallRegex.ReplaceAllString(cleaned, "")
 	cleaned = strings.TrimSpace(cleaned)
-	
+
 	return toolCalls, cleaned
 }

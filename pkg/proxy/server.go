@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -294,13 +296,24 @@ func (s *ProxyServer) Start() error {
 			}
 
 			for _, plugin := range matchedRule.Plugins {
+				before := snapshotRequestForTrace(req)
 				err := plugin.ProcessRequest(req, s.Verbose)
+				after := snapshotRequestForTrace(req)
+				trace := PluginTrace{}
+				trace.Add(PluginTraceEntry{
+					Rule:     matchedRule.Name,
+					Phase:    "request",
+					Plugin:   plugin.Name(),
+					Modified: diffRequestTrace(before, after),
+					Err:      err,
+				})
 				if s.Verbose {
 					if err != nil {
 						s.Logger.Printf("[RULE:%s PLUGIN ERROR] %s: %v", matchedRule.Name, plugin.Name(), err)
 					} else {
 						s.Logger.Printf("[RULE:%s PLUGIN APPLY] %s applied on %s", matchedRule.Name, plugin.Name(), matchURL)
 					}
+					s.Logger.Printf("[trace] %s", trace.String())
 				}
 			}
 
@@ -352,11 +365,24 @@ func (s *ProxyServer) Start() error {
 
 			if matchedRule != nil && len(matchedRule.ResponsePlugins) > 0 {
 				for _, plugin := range matchedRule.ResponsePlugins {
+					before := snapshotResponseForTrace(resp)
 					err := plugin.ProcessResponse(resp, ctx, s.Verbose, s.VVerbose)
+					after := snapshotResponseForTrace(resp)
+					trace := PluginTrace{}
+					trace.Add(PluginTraceEntry{
+						Rule:     matchedRule.Name,
+						Phase:    "response",
+						Plugin:   plugin.Name(),
+						Modified: diffResponseTrace(before, after),
+						Err:      err,
+					})
 					if err != nil {
 						s.Logger.Printf("[RULE:%s RESPONSE PLUGIN ERROR] %s: %v", matchedRule.Name, plugin.Name(), err)
 					} else if s.Verbose {
 						s.Logger.Printf("[RULE:%s RESPONSE PLUGIN APPLY] %s applied on %s", matchedRule.Name, plugin.Name(), matchURL)
+					}
+					if s.Verbose {
+						s.Logger.Printf("[trace] %s", trace.String())
 					}
 				}
 			}
@@ -412,6 +438,110 @@ func (s *ProxyServer) Start() error {
 
 	time.Sleep(100 * time.Millisecond)
 	return nil
+}
+
+type requestTraceSnapshot struct {
+	path          string
+	rawQuery      string
+	contentLength int64
+	headerShape   string
+	bodyShape     string
+}
+
+type responseTraceSnapshot struct {
+	status        string
+	contentLength int64
+	contentType   string
+	headerShape   string
+	body          io.ReadCloser
+}
+
+func snapshotRequestForTrace(req *http.Request) requestTraceSnapshot {
+	snap := requestTraceSnapshot{
+		path:          req.URL.Path,
+		rawQuery:      req.URL.RawQuery,
+		contentLength: req.ContentLength,
+		headerShape:   headerShape(req.Header),
+	}
+	if req.GetBody != nil {
+		if body, err := req.GetBody(); err == nil {
+			data, readErr := io.ReadAll(body)
+			_ = body.Close()
+			if readErr == nil {
+				sum := sha256.Sum256(data)
+				snap.bodyShape = fmt.Sprintf("len=%d sha256=%x", len(data), sum[:4])
+			}
+		}
+	}
+	return snap
+}
+
+func diffRequestTrace(before, after requestTraceSnapshot) []string {
+	var labels []string
+	if before.path != after.path || before.rawQuery != after.rawQuery {
+		labels = append(labels, "path")
+	}
+	if before.contentLength != after.contentLength {
+		labels = append(labels, "content_length")
+	}
+	if before.headerShape != after.headerShape {
+		labels = append(labels, "headers")
+	}
+	if before.bodyShape != after.bodyShape {
+		labels = append(labels, "body")
+	}
+	return labels
+}
+
+func snapshotResponseForTrace(resp *http.Response) responseTraceSnapshot {
+	return responseTraceSnapshot{
+		status:        resp.Status,
+		contentLength: resp.ContentLength,
+		contentType:   resp.Header.Get("Content-Type"),
+		headerShape:   headerShape(resp.Header),
+		body:          resp.Body,
+	}
+}
+
+func diffResponseTrace(before, after responseTraceSnapshot) []string {
+	var labels []string
+	if before.status != after.status {
+		labels = append(labels, "status")
+	}
+	if before.contentLength != after.contentLength {
+		labels = append(labels, "content_length")
+	}
+	if before.contentType != after.contentType {
+		labels = append(labels, "content_type")
+	}
+	if before.headerShape != after.headerShape {
+		labels = append(labels, "headers")
+	}
+	if before.body != after.body {
+		labels = append(labels, "body_wrapped")
+	}
+	return labels
+}
+
+func headerShape(h http.Header) string {
+	if len(h) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(h))
+	for key := range h {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, key := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(key)
+		b.WriteByte('=')
+		b.WriteString(fmt.Sprint(len(h.Values(key))))
+	}
+	return b.String()
 }
 
 // ShouldMITM 判断是否需要对该 host 进行 MITM（优化版：O(1) 查找）

@@ -58,9 +58,8 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request, verbose bool) erro
 			return nil
 		}
 
-		// 调试日志：输出修改后的完整 payload
 		if verbose {
-			log.Printf("[%s] 修正后的 Payload: %s", p.Name(), string(newBodyBytes))
+			log.Printf("[%s] 修正后的 Payload: %s", p.Name(), RedactedSnippet(string(newBodyBytes), 512))
 		}
 
 		req.Body = io.NopCloser(bytes.NewReader(newBodyBytes))
@@ -74,6 +73,14 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request, verbose bool) erro
 
 		if verbose {
 			log.Printf("[%s] 缺失 stream 字段，已强制补全为 true", p.Name())
+			log.Print(RepairReport{
+				Plugin:  p.Name(),
+				Request: req.URL.Path,
+				Actions: []RepairAction{
+					{Name: "insert_stream_true", Count: 1},
+					{Name: "ensure_accept_event_stream", Count: 1},
+				},
+			}.String())
 		}
 		return nil
 	}

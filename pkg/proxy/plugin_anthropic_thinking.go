@@ -215,6 +215,14 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 			if vverbose {
 				log.Printf("[%s] 丢弃 signature_delta(index=%d)", p.Name(), index)
 			}
+			if verbose {
+				log.Print(RepairReport{
+					Plugin: p.Name(),
+					Actions: []RepairAction{
+						{Name: "drop_signature_delta", Count: 1, Detail: fmt.Sprintf("index=%d", index)},
+					},
+				}.String())
+			}
 			return
 		}
 
@@ -268,6 +276,12 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 
 				if verbose {
 					log.Printf("[%s] 检测到并行工具调用 Bug，已自动拆分为新工具调用: index=%d, id=%s", p.Name(), newIndex, newID)
+					log.Print(RepairReport{
+						Plugin: p.Name(),
+						Actions: []RepairAction{
+							{Name: "split_parallel_tool_call", Count: 1, Detail: fmt.Sprintf("index=%d", newIndex)},
+						},
+					}.String())
 				}
 				return
 			}
@@ -306,6 +320,14 @@ func (p *AnthropicThinkingFixPlugin) dispatch(dst io.Writer, state *thinkingFixS
 			state.sawMessageDelta = true
 			if vverbose {
 				log.Printf("[%s] message_stop 前补发 message_delta", p.Name())
+			}
+			if verbose {
+				log.Print(RepairReport{
+					Plugin: p.Name(),
+					Actions: []RepairAction{
+						{Name: "synthesize_message_delta", Count: 1},
+					},
+				}.String())
 			}
 		}
 		state.sawMessageStop = true
@@ -355,6 +377,14 @@ func (p *AnthropicThinkingFixPlugin) closeLingeringBlock(dst io.Writer, state *t
 	if vverbose {
 		log.Printf("[%s] 收尾时补发 content_block_stop(index=%d)", p.Name(), idx)
 	}
+	if verbose {
+		log.Print(RepairReport{
+			Plugin: p.Name(),
+			Actions: []RepairAction{
+				{Name: "synthesize_content_block_stop", Count: 1, Detail: fmt.Sprintf("index=%d", idx)},
+			},
+		}.String())
+	}
 }
 
 func (p *AnthropicThinkingFixPlugin) flushTrailing(dst io.Writer, state *thinkingFixState, verbose bool, vverbose bool) {
@@ -372,6 +402,14 @@ func (p *AnthropicThinkingFixPlugin) flushTrailing(dst io.Writer, state *thinkin
 	state.sawMessageStop = true
 	if vverbose {
 		log.Printf("[%s] 上游未发 message_stop，补发收尾事件", p.Name())
+	}
+	if verbose {
+		log.Print(RepairReport{
+			Plugin: p.Name(),
+			Actions: []RepairAction{
+				{Name: "synthesize_message_stop", Count: 1},
+			},
+		}.String())
 	}
 }
 
