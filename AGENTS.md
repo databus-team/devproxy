@@ -8,6 +8,23 @@
 
 Go-based MITM proxy for AI developers that intercepts, modifies, and adapts LLM API requests. Supports OpenAI Responses API → Chat Completions conversion, Anthropic thinking event fix, Codex content format fix, and streaming protocol enhancement. Bypasses TLS verification intentionally — NOT for production use.
 
+## PRODUCT BOUNDARY
+
+devproxy is a local AI protocol repair and diagnostics layer, not a general AI gateway.
+
+Keep the product centered on fixing real client/provider protocol incompatibilities in local developer workflows, especially for Codex, Claude Code, opencode, and similar agent tools. Common examples include:
+
+- A client requires the OpenAI Responses API, but the chosen provider only exposes Chat Completions.
+- A provider emits malformed or incomplete SSE lifecycle events.
+- A client rejects provider-specific content shapes, thinking deltas, signatures, or tool-call stream details.
+- A developer needs verbose protocol diagnostics to identify where an upstream response deviates from the expected format.
+
+Protocol conversion is in scope when it is a compatibility patch for a concrete client/provider mismatch, such as Responses API ↔ Chat Completions bridging for Codex. It should remain narrow, explicit, and testable.
+
+Do not evolve devproxy into a LiteLLM/New API/One API replacement. In particular, avoid adding platform-gateway responsibilities such as provider marketplace management, unified `/v1/models` aggregation, multi-provider routing and fallback, quota/billing systems, dashboards, multi-user key management, or OpenTelemetry/Langfuse/Phoenix observability as core product directions.
+
+Assume LiteLLM Proxy or similar upstream gateways handle general provider aggregation, routing, fallback, cost tracking, and model management. devproxy may sit in front of or behind those systems to repair and diagnose protocol behavior, but should not duplicate their gateway role.
+
 ## ARCHITECTURE
 
 The system uses a **two-process model**:
