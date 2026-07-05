@@ -387,6 +387,12 @@ func (s *ProxyServer) Start() error {
 				}
 			}
 
+			if s.Verbose && strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") && resp.Body != nil {
+				resp.Body = NewSSEValidatorReadCloser(resp.Body, matchURL, func(msg string) {
+					s.Logger.Print(msg)
+				})
+			}
+
 			if resp.StatusCode == http.StatusUnauthorized {
 				dump, err := httputil.DumpResponse(resp, true)
 				if err == nil {
