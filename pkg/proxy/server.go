@@ -452,6 +452,7 @@ type requestTraceSnapshot struct {
 	contentLength int64
 	headerShape   string
 	bodyShape     string
+	body          []byte
 }
 
 type responseTraceSnapshot struct {
@@ -476,6 +477,7 @@ func snapshotRequestForTrace(req *http.Request) requestTraceSnapshot {
 			if readErr == nil {
 				sum := sha256.Sum256(data)
 				snap.bodyShape = fmt.Sprintf("len=%d sha256=%x", len(data), sum[:4])
+				snap.body = data
 			}
 		}
 	}
@@ -495,6 +497,9 @@ func diffRequestTrace(before, after requestTraceSnapshot) []string {
 	}
 	if before.bodyShape != after.bodyShape {
 		labels = append(labels, "body")
+		for _, diff := range JSONShapeDiff(before.body, after.body) {
+			labels = append(labels, "body:"+diff)
+		}
 	}
 	return labels
 }

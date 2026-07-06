@@ -75,8 +75,25 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 	}
 
 	// 针对 codex-fix 的特殊处理：支持参数化实例
-	if name == "codex-fix" && param != "" {
-		return &CodexFixPlugin{TargetModel: param}, nil
+	if name == "codex-fix" {
+		opts := parsePluginOptions(param)
+		targetModel := param
+		if opts["model"] != "" {
+			targetModel = opts["model"]
+		}
+		if opts["target_model"] != "" {
+			targetModel = opts["target_model"]
+		}
+		if opts["diagnose"] == "true" || opts["diagnose"] == "1" || opts["diagnose"] == "yes" {
+			targetModel = strings.TrimPrefix(strings.TrimPrefix(targetModel, "diagnose"), ",")
+			return &CodexFixPlugin{TargetModel: targetModel, Diagnose: true}, nil
+		}
+		if param == "diagnose" {
+			return &CodexFixPlugin{Diagnose: true}, nil
+		}
+		if param != "" {
+			return &CodexFixPlugin{TargetModel: param}, nil
+		}
 	}
 
 	if name == "responses-api" {
@@ -93,6 +110,14 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 			keepReasoning = true
 		}
 		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
+	}
+
+	if name == "force-stream" && param == "diagnose" {
+		return &ForceStreamPlugin{Diagnose: true}, nil
+	}
+
+	if name == "openai-tool-calls-fix" && param == "diagnose" {
+		return &OpenAIToolCallsFixPlugin{Diagnose: true}, nil
 	}
 
 	p, ok := RequestPluginRegistry[name]
@@ -128,9 +153,30 @@ func GetResponsePlugin(fullName string) (ResponsePlugin, error) {
 		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
 	}
 
+	if name == "openai-tool-calls-fix" && param == "diagnose" {
+		return &OpenAIToolCallsFixPlugin{Diagnose: true}, nil
+	}
+
 	p, ok := ResponsePluginRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("响应插件 %s 未找到", name)
 	}
 	return p, nil
+}
+
+func parsePluginOptions(param string) map[string]string {
+	opts := make(map[string]string)
+	for _, part := range strings.Split(param, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if !strings.Contains(part, "=") {
+			opts[part] = "true"
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		opts[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+	}
+	return opts
 }

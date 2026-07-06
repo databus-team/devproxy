@@ -14,6 +14,7 @@ import (
 // 它会将 messages 中的 content 对象数组拼接为纯文本字符串，并可选地替换 model 字段
 type CodexFixPlugin struct {
 	TargetModel string // 若不为空，则将请求中的 model 字段替换为此值
+	Diagnose    bool   // 仅诊断会发生的修复，不修改请求
 }
 
 func (c *CodexFixPlugin) Name() string {
@@ -68,6 +69,29 @@ func (c *CodexFixPlugin) ProcessRequest(req *http.Request, verbose bool) error {
 
 	contentArrayCountBefore := countAssistantContentArrays(payload)
 	modelBefore, _ := payload["model"].(string)
+	if c.Diagnose {
+		report := RepairReport{
+			Plugin:  c.Name(),
+			Request: req.URL.Path,
+		}
+		if contentArrayCountBefore > 0 {
+			report.Actions = append(report.Actions, RepairAction{
+				Name:  "would_content_array_to_string",
+				Count: contentArrayCountBefore,
+			})
+		}
+		if c.TargetModel != "" && modelBefore != "" && modelBefore != c.TargetModel {
+			report.Actions = append(report.Actions, RepairAction{
+				Name:   "would_model_substitution",
+				Count:  1,
+				Detail: fmt.Sprintf("%s -> %s", modelBefore, c.TargetModel),
+			})
+		}
+		if verbose && len(report.Actions) > 0 {
+			log.Print(report.String())
+		}
+		return nil
+	}
 
 	// 3. 寻找并处理消息容器 (递归或特定路径)
 	modified := c.processPayload(payload, verbose)

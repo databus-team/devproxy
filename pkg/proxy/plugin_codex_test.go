@@ -166,3 +166,22 @@ func TestCodexFixPlugin(t *testing.T) {
 		}
 	})
 }
+
+func TestCodexFixPlugin_DiagnoseDoesNotModifyRequest(t *testing.T) {
+	plugin := &CodexFixPlugin{TargetModel: "deepseek-chat", Diagnose: true}
+	reqBody := []byte(`{"model":"gpt-5","messages":[{"role":"assistant","content":[{"type":"output_text","text":"answer"}]}]}`)
+	req, _ := http.NewRequest(http.MethodPost, "http://example.com/v1/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	if err := plugin.ProcessRequest(req, true); err != nil {
+		t.Fatalf("ProcessRequest: %v", err)
+	}
+
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(reqBody) {
+		t.Fatalf("diagnose mode changed body:\nwant=%s\n got=%s", string(reqBody), string(got))
+	}
+}

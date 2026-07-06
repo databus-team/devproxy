@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,29 @@ func TestForceStreamPlugin_ProcessRequest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestForceStreamPlugin_DiagnoseDoesNotModifyRequest(t *testing.T) {
+	body := `{"model":"gpt-4","stream_options":{"include_usage":true}}`
+	req, err := http.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plugin := &ForceStreamPlugin{Diagnose: true}
+	if err := plugin.ProcessRequest(req, true); err != nil {
+		t.Fatalf("ProcessRequest: %v", err)
+	}
+
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("diagnose mode changed body:\nwant=%s\n got=%s", body, string(got))
+	}
+	if req.Header.Get("Accept") != "" {
+		t.Fatalf("diagnose mode changed Accept header: %q", req.Header.Get("Accept"))
 	}
 }

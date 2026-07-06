@@ -10,7 +10,9 @@ import (
 )
 
 // ForceStreamPlugin 检查请求体，如果包含 stream_options 但未开启 stream，则强制设置 stream: true
-type ForceStreamPlugin struct{}
+type ForceStreamPlugin struct {
+	Diagnose bool
+}
 
 func (p *ForceStreamPlugin) Name() string {
 	return "force-stream"
@@ -47,6 +49,22 @@ func (p *ForceStreamPlugin) ProcessRequest(req *http.Request, verbose bool) erro
 	_, hasStream := payload["stream"]
 
 	if !hasStream {
+		if p.Diagnose {
+			if verbose {
+				log.Print(RepairReport{
+					Plugin:  p.Name(),
+					Request: req.URL.Path,
+					Actions: []RepairAction{
+						{Name: "would_insert_stream_true", Count: 1},
+						{Name: "would_ensure_accept_event_stream", Count: 1},
+					},
+				}.String())
+			}
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			req.ContentLength = int64(len(bodyBytes))
+			return nil
+		}
+
 		payload["stream"] = true
 
 		newBodyBytes, err := json.Marshal(payload)

@@ -13,7 +13,9 @@ import (
 	"github.com/elazarl/goproxy"
 )
 
-type OpenAIToolCallsFixPlugin struct{}
+type OpenAIToolCallsFixPlugin struct {
+	Diagnose bool
+}
 
 func (p *OpenAIToolCallsFixPlugin) Name() string {
 	return "openai-tool-calls-fix"
@@ -73,8 +75,15 @@ func (p *OpenAIToolCallsFixPlugin) rewrite(src io.ReadCloser, dst *io.PipeWriter
 		if strings.HasPrefix(line, "data: ") && strings.TrimSpace(strings.TrimPrefix(line, "data: ")) != "[DONE]" {
 			fixed, actions, changed := p.fixDataLine(strings.TrimPrefix(line, "data: "), states)
 			if changed {
-				output = "data: " + fixed
+				if !p.Diagnose {
+					output = "data: " + fixed
+				}
 				if verbose {
+					if p.Diagnose {
+						for i := range actions {
+							actions[i].Name = "would_" + actions[i].Name
+						}
+					}
 					log.Print(RepairReport{
 						Plugin:  p.Name(),
 						Actions: actions,

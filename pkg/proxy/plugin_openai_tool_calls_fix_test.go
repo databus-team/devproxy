@@ -65,6 +65,22 @@ func TestOpenAIToolCallsFix_NonToolChunksPassThrough(t *testing.T) {
 	}
 }
 
+func TestOpenAIToolCallsFix_DiagnoseDoesNotModifyStream(t *testing.T) {
+	input := "data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"type\":\"function\",\"function\":{\"name\":\"search\",\"arguments\":{\"q\":\"devproxy\"}}}]}}]}\n\n"
+	resp := newOpenAIToolCallsFixResponse(input)
+	plugin := &OpenAIToolCallsFixPlugin{Diagnose: true}
+	if err := plugin.ProcessResponse(resp, &goproxy.ProxyCtx{}, true, false); err != nil {
+		t.Fatalf("ProcessResponse: %v", err)
+	}
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != input {
+		t.Fatalf("diagnose mode changed stream:\nwant=%q\n got=%q", input, string(out))
+	}
+}
+
 func TestOpenAIToolCallsFix_IgnoresUnmarkedResponses(t *testing.T) {
 	resp := newOpenAIToolCallsFixResponse("data: [DONE]\n\n")
 	resp.Request.Header.Del("X-DevProxy-OpenAI-Tool-Calls-Fix")

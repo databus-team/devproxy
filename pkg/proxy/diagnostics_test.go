@@ -75,6 +75,29 @@ func TestPluginTraceString(t *testing.T) {
 	}
 }
 
+func TestDiffRequestTraceIncludesJSONShapeDiff(t *testing.T) {
+	before := requestTraceSnapshot{
+		bodyShape: "before",
+		body:      []byte(`{"messages":[{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`),
+	}
+	after := requestTraceSnapshot{
+		bodyShape: "after",
+		body:      []byte(`{"messages":[{"role":"assistant","content":"hi"}]}`),
+	}
+
+	got := strings.Join(diffRequestTrace(before, after), "\n")
+
+	if !strings.Contains(got, "body") {
+		t.Fatalf("expected body label: %s", got)
+	}
+	if !strings.Contains(got, "body:changed messages[0].content array -> string") {
+		t.Fatalf("expected JSON shape diff label: %s", got)
+	}
+	if strings.Contains(got, "hi") {
+		t.Fatalf("shape diff leaked body value: %s", got)
+	}
+}
+
 func TestJSONShapeDiff(t *testing.T) {
 	before := []byte(`{"model":"a","messages":[{"role":"assistant","content":[{"type":"text","text":"hi"}]}],"keep":true}`)
 	after := []byte(`{"model":"b","messages":[{"role":"assistant","content":"hi"}],"stream":true}`)
@@ -108,5 +131,46 @@ func TestTruncateSnippet(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "...") {
 		t.Fatalf("truncated snippet should end with ellipsis: %q", got)
+	}
+}
+
+func TestDiagnosePluginParameters(t *testing.T) {
+	codex, err := GetPlugin("codex-fix:model=deepseek-chat,diagnose=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexFix, ok := codex.(*CodexFixPlugin)
+	if !ok {
+		t.Fatalf("expected CodexFixPlugin, got %T", codex)
+	}
+	if !codexFix.Diagnose || codexFix.TargetModel != "deepseek-chat" {
+		t.Fatalf("unexpected codex diagnose plugin: %#v", codexFix)
+	}
+
+	force, err := GetPlugin("force-stream:diagnose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forceStream, ok := force.(*ForceStreamPlugin)
+	if !ok || !forceStream.Diagnose {
+		t.Fatalf("unexpected force-stream diagnose plugin: %#v", force)
+	}
+
+	toolReq, err := GetPlugin("openai-tool-calls-fix:diagnose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolReqPlugin, ok := toolReq.(*OpenAIToolCallsFixPlugin)
+	if !ok || !toolReqPlugin.Diagnose {
+		t.Fatalf("unexpected request tool diagnose plugin: %#v", toolReq)
+	}
+
+	toolResp, err := GetResponsePlugin("openai-tool-calls-fix:diagnose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolRespPlugin, ok := toolResp.(*OpenAIToolCallsFixPlugin)
+	if !ok || !toolRespPlugin.Diagnose {
+		t.Fatalf("unexpected response tool diagnose plugin: %#v", toolResp)
 	}
 }
