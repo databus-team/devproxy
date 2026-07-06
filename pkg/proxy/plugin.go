@@ -77,22 +77,12 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 	// 针对 codex-fix 的特殊处理：支持参数化实例
 	if name == "codex-fix" {
 		opts := parsePluginOptions(param)
-		targetModel := param
-		if opts["model"] != "" {
-			targetModel = opts["model"]
-		}
-		if opts["target_model"] != "" {
-			targetModel = opts["target_model"]
-		}
-		if opts["diagnose"] == "true" || opts["diagnose"] == "1" || opts["diagnose"] == "yes" {
-			targetModel = strings.TrimPrefix(strings.TrimPrefix(targetModel, "diagnose"), ",")
+		targetModel := firstNonEmpty(opts["model"], opts["target_model"], opts["_"])
+		if pluginOptionBool(opts, "diagnose") {
 			return &CodexFixPlugin{TargetModel: targetModel, Diagnose: true}, nil
 		}
-		if param == "diagnose" {
-			return &CodexFixPlugin{Diagnose: true}, nil
-		}
 		if param != "" {
-			return &CodexFixPlugin{TargetModel: param}, nil
+			return &CodexFixPlugin{TargetModel: targetModel}, nil
 		}
 	}
 
@@ -112,11 +102,11 @@ func GetPlugin(fullName string) (RequestPlugin, error) {
 		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
 	}
 
-	if name == "force-stream" && param == "diagnose" {
+	if name == "force-stream" && pluginOptionBool(parsePluginOptions(param), "diagnose") {
 		return &ForceStreamPlugin{Diagnose: true}, nil
 	}
 
-	if name == "openai-tool-calls-fix" && param == "diagnose" {
+	if name == "openai-tool-calls-fix" && pluginOptionBool(parsePluginOptions(param), "diagnose") {
 		return &OpenAIToolCallsFixPlugin{Diagnose: true}, nil
 	}
 
@@ -153,7 +143,7 @@ func GetResponsePlugin(fullName string) (ResponsePlugin, error) {
 		return &AnthropicMessagesFixPlugin{KeepReasoning: keepReasoning}, nil
 	}
 
-	if name == "openai-tool-calls-fix" && param == "diagnose" {
+	if name == "openai-tool-calls-fix" && pluginOptionBool(parsePluginOptions(param), "diagnose") {
 		return &OpenAIToolCallsFixPlugin{Diagnose: true}, nil
 	}
 
@@ -172,11 +162,33 @@ func parsePluginOptions(param string) map[string]string {
 			continue
 		}
 		if !strings.Contains(part, "=") {
-			opts[part] = "true"
+			if part == "diagnose" || part == "keep-reasoning" {
+				opts[part] = "true"
+			} else if opts["_"] == "" {
+				opts["_"] = part
+			}
 			continue
 		}
 		kv := strings.SplitN(part, "=", 2)
 		opts[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
 	}
 	return opts
+}
+
+func pluginOptionBool(opts map[string]string, key string) bool {
+	switch strings.ToLower(opts[key]) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

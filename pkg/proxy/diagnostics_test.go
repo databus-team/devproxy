@@ -135,7 +135,7 @@ func TestTruncateSnippet(t *testing.T) {
 }
 
 func TestDiagnosePluginParameters(t *testing.T) {
-	codex, err := GetPlugin("codex-fix:model=deepseek-chat,diagnose=true")
+	codex, err := GetPlugin("codex-fix:deepseek-chat,diagnose=true")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,16 @@ func TestDiagnosePluginParameters(t *testing.T) {
 		t.Fatalf("unexpected codex diagnose plugin: %#v", codexFix)
 	}
 
-	force, err := GetPlugin("force-stream:diagnose")
+	codexKeyValue, err := GetPlugin("codex-fix:model=glm-4.5,diagnose=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexKeyValueFix, ok := codexKeyValue.(*CodexFixPlugin)
+	if !ok || !codexKeyValueFix.Diagnose || codexKeyValueFix.TargetModel != "glm-4.5" {
+		t.Fatalf("unexpected key-value codex diagnose plugin: %#v", codexKeyValue)
+	}
+
+	force, err := GetPlugin("force-stream:diagnose=true")
 	if err != nil {
 		t.Fatal(err)
 	}
